@@ -1411,7 +1411,9 @@ function resolveTransition(key, oldId) {
      if(scNew > 0 && newFirst === 0) newFirst = scNew;
   });
   
-  var ratio = (oldMax > 0 && newFirst > 0) ? (oldMax / newFirst) : 1;
+  // fix5: יחס המרה תקף רק בין תרגילים מאותו סוג — ציון זמן וציון ק"ג אינם ברי-השוואה
+  var _sameType = newEx && oldEx && newEx.t === oldEx.t;
+  var ratio = (_sameType && oldMax > 0 && newFirst > 0) ? (oldMax / newFirst) : 1;
   decs[key] = {
       step: 'done',
       oldId: oldId,
@@ -1427,7 +1429,10 @@ function resolveTransition(key, oldId) {
 function renderInvestigateCard(d, key){
     var exName = getExName(d.exId);
     var dStr = new Date(d.date).toLocaleDateString('he-IL');
-    var wInfo = (d.oldW > 0 && d.newW > 0) ? ' ממשקל <b>'+Math.round(d.oldW)+' ק"ג</b> למשקל <b>'+Math.round(d.newW)+' ק"ג</b>' : '';
+    // fix5: הצגת "ממשקל... ק"ג" רק בתרגילי ק"ג — בתרגילי גוף/זמן המספרים הם ציון ולא משקל
+    var _cx = allEx().filter(function(e){return e.id===d.exId;})[0];
+    var _isKg = !_cx || _cx.t === 'kg';
+    var wInfo = (_isKg && d.oldW > 0 && d.newW > 0) ? ' ממשקל <b>'+Math.round(d.oldW)+' ק"ג</b> למשקל <b>'+Math.round(d.newW)+' ק"ג</b>' : '';
     var h = '<div style="background:var(--s1);border:1px solid var(--blue2);border-radius:14px;padding:16px;margin-bottom:10px">';
     if(d.src === 'user'){
         h += '<div style="font-size:13px;margin-bottom:12px;color:var(--tx);">ביקשת לחקור שינוי ב־<b style="color:var(--blue2)">'+exName+'</b>'+wInfo+' מתאריך '+dStr+'.</div>';
@@ -1551,7 +1556,9 @@ function resolveInvTrans(key){
        });
     }
     
-    var ratio = (oldMax > 0 && newFirst > 0) ? (oldMax / newFirst) : 1;
+    // fix5: יחס המרה תקף רק בין תרגילים מאותו סוג — ציון זמן וציון ק"ג אינם ברי-השוואה
+    var _sameType = newEx && oldEx && newEx.t === oldEx.t;
+    var ratio = (_sameType && oldMax > 0 && newFirst > 0) ? (oldMax / newFirst) : 1;
     
     var newKey = 'trans_' + oldId;
     decs[newKey] = {
@@ -2956,7 +2963,8 @@ function doChgEx(){
   var _hadHistory = false;
   try{
     var _h = getExHistory(chgExId);
-    if(_h.length){ _hadHistory = true; _refW = _h[_h.length-1].originalW || _refW; }
+    // fix5: משקל ייחוס בק"ג אמיתי (mw), לא ציון כוח — מונע הצגת מספרים כמו 9,000+ בתרגילי זמן
+    if(_h.length){ _hadHistory = true; _refW = _h[_h.length-1].mw || 0; }
   }catch(e){}
 
   ex.n = newName;
@@ -3016,7 +3024,8 @@ function doChgEx(){
   // fix4: שם שונה או קפיצת משקל ≥25% בתרגיל עם היסטוריה → פתיחת חקירת שינוי אוטומטית
   try{
     var nameChanged = _oldName.trim() !== newName;
-    var weightJump = _refW > 0 && newW > 0 && Math.abs(newW - _refW)/_refW >= 0.25;
+    // fix5: קפיצת משקל רלוונטית רק בתרגילי ק"ג — בתרגילי גוף/זמן שינוי שם לבדו מפעיל חקירה
+    var weightJump = newType==='kg' && _refW > 0 && newW > 0 && Math.abs(newW - _refW)/_refW >= 0.25;
     if(_hadHistory && (nameChanged || weightJump)){
       var _decs = getDecisions();
       var _pendingInv = Object.keys(_decs).some(function(k){
