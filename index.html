@@ -175,6 +175,16 @@ canvas{width:100%;border-radius:var(--r);background:var(--s1);display:block}
 <body>
 
 <!-- ONBOARDING -->
+<div class="ovl" id="exitOvl" style="display:none;align-items:center;z-index:700">
+  <div style="background:var(--s1);border:1px solid var(--bd);border-radius:18px;padding:24px;max-width:280px;width:78%;text-align:center">
+    <div style="font-size:17px;font-weight:800;color:var(--tx);margin-bottom:18px">האם ברצונך לצאת?</div>
+    <div style="display:flex;gap:10px">
+      <button class="btn" style="background:var(--s2);color:var(--tx);border:1px solid var(--bd)" onclick="exitCancel()">לא</button>
+      <button class="btn" onclick="exitConfirm()">כן</button>
+    </div>
+  </div>
+</div>
+
 <div class="ovl" id="obOvl" style="display:none">
   <div class="box">
     <h2>GymLog</h2>
@@ -1999,7 +2009,7 @@ function openInsight(idx){
 function buildVolWeekDetail(d){
   var dir = d.diff>0 ? 'עלייה' : 'ירידה';
   var dirColor = d.diff>0 ? 'var(--ok)' : 'var(--red)';
-  var html = _explain('"נפח" = סך משקל × חזרות לכל הסטים שהושלמו (משקל גוף נספר 50% בתרגילי גוף ו-30% בתרגילי זמן). ההשוואה היא בין 7 הימים האחרונים ל-7 הימים שלפניהם.')+
+  var html = _explain('"נפח" = סך משקל × חזרות לכל הסטים שהושלמו. משקל גוף נספר 50% בתרגילי גוף; תרגיל זמן מקבל נתח שווה לממוצע שאר התרגילים באימון. ההשוואה היא בין 7 הימים האחרונים ל-7 הימים שלפניהם.')+
     _section('השוואה')+
     _row('השבוע'+(d.deloadW1?' 🌿':''), _kg(d.vol1)+' ק"ג')+
     _row('שבוע שעבר'+(d.deloadW2?' 🌿':''), _kg(d.vol2)+' ק"ג')+
@@ -2653,7 +2663,7 @@ function drawVolChart(){
   }
 
   function sessVol(s, VM){
-    var sum = 0;
+    var sum = 0, timeCnt = 0, nonTimeCnt = 0;
     var bw = bwAt(s.start);
     Object.keys(s.sets||{}).forEach(function(exId){
       var tgtId=volTargetId(VM.fwd, exId);
@@ -2662,16 +2672,20 @@ function drawVolChart(){
       var ref=ex||tex;
       if(!ref || hasInvalidMuscle(ref.id)) return; 
       var mult=lookupMult(VM.map[tgtId], s.start);
-      (s.sets[exId]||[]).forEach(function(set){
-        if(!set.done) return;
+      var doneSets=(s.sets[exId]||[]).filter(function(set){return set.done;});
+      if(!doneSets.length) return;
+      // תרגיל זמן: לא נמדד בק"ג — יקבל נתח שווה לממוצע שאר התרגילים (למשל 1/9 מאימון של 9)
+      if(ref.t==='time'){ timeCnt++; return; }
+      nonTimeCnt++;
+      doneSets.forEach(function(set){
         var reps=parseReps(set.r, ref.r);
         var w=parseFloat(set.w)||0;
-        // תרגילי משקל גוף: 50% ממשקל הגוף · תרגילי זמן: 30% ממשקל הגוף
+        // תרגילי משקל גוף: 50% ממשקל הגוף
         if(ref.t==='body') sum+=(bw*0.5+w)*reps*mult;
-        else if(ref.t==='time') sum+=(bw*0.3+w)*reps*mult;
         else sum+=w*reps*mult;
       });
     });
+    if(timeCnt>0 && nonTimeCnt>0) sum += timeCnt*(sum/nonTimeCnt);
     return sum;
   }
 
@@ -2828,6 +2842,13 @@ function doAdj(id,i,d){
 }
 function updW(id,i,v){ if(skipMode) return; curSess.sets[id][i].w=parseFloat(v)||0; saveC() }
 function updR(id,i,v){ if(skipMode) return; curSess.sets[id][i].r=v; saveC() }
+// לחיצה על שדה: הערך הקודם הופך לרמז אפור והשדה מתרוקן — בלי סימון טקסט (מונע את בועת העתק/גזור)
+function clrFocus(el){
+  el.dataset.prev=el.value;
+  if(el.value!==''){ el.placeholder=el.value; el.value=''; }
+}
+// יציאה מהשדה בלי הקלדה: הערך הקודם חוזר
+function clrBlur(el){ if(el.value===''&&el.dataset.prev){ el.value=el.dataset.prev; } }
 
 function togSet(id,i){
   if(skipMode) return;
@@ -2835,7 +2856,7 @@ function togSet(id,i){
   s.done=!s.done;
   var ri=$('ri_'+id+'_'+i), wi=$('wi_'+id+'_'+i);
   if(ri) s.r=ri.value||ri.placeholder||'';
-  if(wi) s.w=parseFloat(wi.value)||0;
+  if(wi) s.w=parseFloat(wi.value!==''?wi.value:(wi.dataset.prev||wi.placeholder))||0;
   if(s.done){ var av=getActiveVariant(id); if(av) s.v=av; }
   var sr=$('sr_'+id+'_'+i), db=$('db_'+id+'_'+i);
   if(s.done){
@@ -2856,8 +2877,9 @@ function calcExVol(id){
     if(!s.done) return acc;
     var bw_=wLog.length?wLog[wLog.length-1].w:80;
     var w0=parseFloat(s.w)||0;
-    // משקל גוף: 50% בתרגילי גוף, 30% בתרגילי זמן
-    var w=ex&&ex.t==='body'?(bw_*0.5+w0):(ex&&ex.t==='time'?(bw_*0.3+w0):w0);
+    // תרגיל זמן: לא נמדד בק"ג — לא מציגים נפח. משקל גוף: 50%
+    if(ex&&ex.t==='time') return acc;
+    var w=ex&&ex.t==='body'?(bw_*0.5+w0):w0;
     return acc+w*parseReps(s.r, ex?ex.r:'');
   },0);
 }
@@ -3272,21 +3294,21 @@ function renderWkt(){
       var inp = '';
       var repsCtrl = '<div class="rc">'+
         '<button class="rb" onpointerdown="rAdj(\''+ex.id+'\','+i+',-1)" onpointerup="rEnd()" onpointerleave="rEnd()">−</button>'+
-        '<input class="ri" id="ri_'+ex.id+'_'+i+'" type="number" placeholder="חז\'" value="'+sr+'" inputmode="numeric" onchange="updR(\''+ex.id+'\','+i+',this.value)" onfocus="this.select()"/>'+
+        '<input class="ri" id="ri_'+ex.id+'_'+i+'" type="number" placeholder="חז\'" value="'+sr+'" inputmode="numeric" onchange="if(this.value!==\'\')updR(\''+ex.id+'\','+i+',this.value)" onfocus="clrFocus(this)" onblur="clrBlur(this)"/>'+
         '<button class="rb" onpointerdown="rAdj(\''+ex.id+'\','+i+',1)" onpointerup="rEnd()" onpointerleave="rEnd()">+</button>'+
         '</div>';
 
       if(isKg){
         inp = '<div class="wc">'+
           '<button class="wb" onpointerdown="adjSt(\''+ex.id+'\','+i+',-'+STEP+')" onpointerup="adjEnd()" onpointerleave="adjEnd()">−</button>'+
-          '<input class="wi" id="wi_'+ex.id+'_'+i+'" type="number" value="'+sw+'" step="any" inputmode="decimal" onchange="updW(\''+ex.id+'\','+i+',this.value)" onfocus="this.select()"/>'+
+          '<input class="wi" id="wi_'+ex.id+'_'+i+'" type="number" value="'+sw+'" step="any" inputmode="decimal" onchange="if(this.value!==\'\')updW(\''+ex.id+'\','+i+',this.value)" onfocus="clrFocus(this)" onblur="clrBlur(this)"/>'+
           '<span class="wu">ק"ג</span>'+
           '<button class="wb" onpointerdown="adjSt(\''+ex.id+'\','+i+','+STEP+')" onpointerup="adjEnd()" onpointerleave="adjEnd()">+</button>'+
           '</div>'+repsCtrl;
       } else if(isTime){
         inp = '<div class="rc" style="flex:1">'+
           '<button class="rb" onpointerdown="rAdj(\''+ex.id+'\','+i+',-5)" onpointerup="rEnd()" onpointerleave="rEnd()">−</button>'+
-          '<input class="ri" id="ri_'+ex.id+'_'+i+'" type="number" placeholder="שנ\'" value="'+sr+'" inputmode="numeric" onchange="updR(\''+ex.id+'\','+i+',this.value)" onfocus="this.select()" style="width:46px"/>'+
+          '<input class="ri" id="ri_'+ex.id+'_'+i+'" type="number" placeholder="שנ\'" value="'+sr+'" inputmode="numeric" onchange="if(this.value!==\'\')updR(\''+ex.id+'\','+i+',this.value)" onfocus="clrFocus(this)" onblur="clrBlur(this)" style="width:46px"/>'+
           '<span class="wu">שנ\'</span>'+
           '<button class="rb" onpointerdown="rAdj(\''+ex.id+'\','+i+',5)" onpointerup="rEnd()" onpointerleave="rEnd()">+</button>'+
           '</div>';
@@ -3646,6 +3668,42 @@ function doReset(){
 }
 </script>
 <script>
+// ── כפתור "חזור" של אנדרואיד ──
+// לחיצה ראשונה: סוגרת מקלדת פתוחה או חלון קופץ. כשאין מה לסגור: חלון "האם ברצונך לצאת?"
+(function(){
+  function pushGuard(){ try{ history.pushState({g:1},''); }catch(e){} }
+  function openOvlEl(){
+    var list=document.querySelectorAll('.ovl');
+    for(var i=0;i<list.length;i++){
+      if(list[i].id!=='exitOvl' && list[i].style.display && list[i].style.display!=='none') return list[i];
+    }
+    return null;
+  }
+  window.exitCancel=function(){ closeOvl('exitOvl'); pushGuard(); };
+  window.exitConfirm=function(){
+    closeOvl('exitOvl');
+    try{ window.close(); }catch(e){}
+    setTimeout(function(){ history.back(); },60);
+  };
+  window.addEventListener('popstate', function(){
+    // חלון היציאה פתוח? "חזור" נוסף = ביטול
+    var ex=$('exitOvl');
+    if(ex && ex.style.display==='flex'){ closeOvl('exitOvl'); pushGuard(); return; }
+    // מקלדת פתוחה? רק לסגור אותה
+    var ae=document.activeElement;
+    if(ae && (ae.tagName==='INPUT'||ae.tagName==='TEXTAREA')){ ae.blur(); pushGuard(); return; }
+    // טיימר מנוחה במסך מלא?
+    var tmr=$('tmr');
+    if(tmr && tmr.style.display==='flex'){ tmr.style.display='none'; pushGuard(); return; }
+    // חלון קופץ אחר פתוח? לסגור אותו
+    var ovl=openOvlEl();
+    if(ovl){ ovl.style.display='none'; pushGuard(); return; }
+    // אין מה לסגור: אישור יציאה. לחיצה על "כן" תצא, "לא" תישאר
+    openOvl('exitOvl');
+  });
+  pushGuard();
+})();
+
 if('serviceWorker' in navigator){
   window.addEventListener('load',function(){
     navigator.serviceWorker.register('sw.js').catch(function(e){ console.warn('SW:',e); });
