@@ -3689,16 +3689,15 @@ function doReset(){
     // חלון היציאה פתוח? "חזור" נוסף = ביטול
     var ex=$('exitOvl');
     if(ex && ex.style.display==='flex'){ closeOvl('exitOvl'); pushGuard(); return; }
-    // מקלדת פתוחה? רק לסגור אותה
-    var ae=document.activeElement;
-    if(ae && (ae.tagName==='INPUT'||ae.tagName==='TEXTAREA')){ ae.blur(); pushGuard(); return; }
     // טיימר מנוחה במסך מלא?
     var tmr=$('tmr');
     if(tmr && tmr.style.display==='flex'){ tmr.style.display='none'; pushGuard(); return; }
     // חלון קופץ אחר פתוח? לסגור אותו
     var ovl=openOvlEl();
     if(ovl){ ovl.style.display='none'; pushGuard(); return; }
-    // אין מה לסגור: אישור יציאה. לחיצה על "כן" תצא, "לא" תישאר
+    // אין מה לסגור: אישור יציאה (סגירת מקלדת נעשית ע"י אנדרואיד עצמו לפני שמגיעים לכאן)
+    var ae=document.activeElement;
+    if(ae && ae.blur) ae.blur();
     openOvl('exitOvl');
   });
   pushGuard();
