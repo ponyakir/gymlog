@@ -1147,88 +1147,24 @@ function detectWeightJumpAlerts(){
 function renderAlerts(){
   try {
       var box=$('alertsBox'); if(!box) return;
-      // fix7: מערכת ההתראות הישנה (חקירות קפיצה, מעברים) בוטלה.
-      // נשארו: מיפוי שרירים (נדרש לגרפי השריר) + התראת מקדם מכונה בשינוי תרגיל.
+      // fix8: מסך התראות נקי — ללא לשונית היסטוריה. רק מיפוי שרירים + מקדם מכונה.
       var mapAlerts=detectMuscleMappingAlerts();
-
       var decs = getDecisions();
       var coefKeys = Object.keys(decs).filter(function(k){ return k.indexOf('coef_')===0 && decs[k].step!=='done'; });
-      var doneKeys = Object.keys(decs).filter(function(k){ return decs[k].step==='done' || decs[k].dismissed; });
 
       updateAlertBadge(mapAlerts.length + coefKeys.length);
 
-      var isPending = (alertsViewMode === 'pending');
-      var html = '<div style="display:flex;background:var(--s2);border:1px solid var(--bd);border-radius:20px;padding:3px;margin-bottom:16px;gap:2px">'
-        +'<button onclick="setAlertsMode(\'pending\')" style="flex:1;padding:6px 10px;border-radius:16px;border:none;cursor:pointer;font-size:12px;font-weight:700;'+(isPending?'background:var(--acc);color:#fff':'background:transparent;color:var(--t3)')+'">'
-        +'ממתין ('+(mapAlerts.length+coefKeys.length)+')</button>'
-        +'<button onclick="setAlertsMode(\'done\')" style="flex:1;padding:6px 10px;border-radius:16px;border:none;cursor:pointer;font-size:12px;font-weight:700;'+(!isPending?'background:var(--ok);color:#fff':'background:transparent;color:var(--t3)')+'">'
-        +'היסטוריה ('+doneKeys.length+')</button>'
-        +'</div>';
-
-      if(isPending){
-          if(!mapAlerts.length && !coefKeys.length){
-            html+='<div style="text-align:center;padding:40px;color:var(--t2)">אין התראות כרגע 🔕</div>';
-          } else {
-              if(mapAlerts.length){
-                html+='<div style="font-size:10px;font-weight:700;color:var(--acc);letter-spacing:.8px;margin-bottom:8px">🏷 מיפוי שרירים ('+mapAlerts.length+')</div>';
-                html+=mapAlerts.map(function(t){ return renderMappingCard(t); }).join('');
-              }
-              if(coefKeys.length){
-                html+='<div style="font-size:10px;font-weight:700;color:var(--blue2);letter-spacing:.8px;margin:14px 0 8px">⚙️ סוג תרגיל חדש ('+coefKeys.length+')</div>';
-                html+=coefKeys.map(function(k){ return renderCoefCard(decs[k], k); }).join('');
-              }
-          }
+      var html='';
+      if(!mapAlerts.length && !coefKeys.length){
+        html+='<div style="text-align:center;padding:40px;color:var(--t2)">אין התראות כרגע 🔕</div>';
       } else {
-          if(!doneKeys.length){
-              html+='<div style="text-align:center;padding:40px;color:var(--t2)">אין התראות בהיסטוריה</div>';
-          } else {
-              html += doneKeys.reverse().map(function(k){
-                  var d = decs[k];
-                  var statusColor = d.dismissed ? 'var(--t3)' : 'var(--ok)';
-                  var statusText = d.dismissed ? 'בוטל / נדחה' : 'הוחלף / אושר / כוונן';
-                  
-                  var rawOldId = '';
-                  var rawNewId = '';
-                  if (k.indexOf('_to_') > -1) {
-                      var parts = k.split('_to_');
-                      rawOldId = parts[0];
-                      rawNewId = parts[1];
-                  } else if (k.indexOf('inplace_') === 0) {
-                      rawOldId = d.exId || k.replace('inplace_','').split('_')[0];
-                      rawNewId = rawOldId;
-                  } else if (k.indexOf('trans_') === 0) {
-                      rawOldId = d.oldId || k.replace('trans_','');
-                      rawNewId = d.newId;
-                  } else if (k.indexOf('coef_') === 0) {
-                      rawOldId = d.exId;
-                      rawNewId = d.exId;
-                  } else {
-                      rawOldId = d.oldId || k;
-                      rawNewId = d.newId;
-                  }
-
-                  var oldN = getExName(rawOldId);
-                  var newN = 'לא נבחר';
-                  if(rawNewId) newN = getExName(rawNewId);
-                  if(k.indexOf('inplace_') === 0) newN = oldN + ' (עודכן)';
-                  if(k.indexOf('coef_') === 0){ oldN = d.oldName || oldN; newN = d.newName || newN; }
-                  
-                  var card = '<div style="background:var(--s1);border:1px solid '+statusColor+';border-radius:14px;padding:16px;margin-bottom:10px;opacity:0.8">';
-                  card += '<div style="font-size:11px;color:'+statusColor+';font-weight:700;margin-bottom:6px;display:flex;justify-content:space-between;">'
-                          +'<span>✓ '+statusText+'</span>'
-                          +'<button onclick="deleteAlertPermanent(\''+k+'\')" style="background:none;border:none;color:var(--t3);cursor:pointer;font-size:14px" title="מחק לצמיתות">🗑️</button>'
-                          +'</div>';
-                  if(d.dismissed) {
-                      card += '<div style="font-size:13px;color:var(--t2)">התרגיל <b>'+oldN+'</b> הפסיק. הוחלט לא למזג.</div>';
-                  } else {
-                      card += '<div style="font-size:13px;margin-bottom:4px"><b>'+oldN+'</b> ➔ <b>'+newN+'</b></div>';
-                      if(d.ratio) card += '<div style="font-size:11px;color:var(--t2)">יחס המרה: '+d.ratio.toFixed(2)+'x</div>';
-                      if(d.coef) card += '<div style="font-size:11px;color:var(--t2)">מקדם משקל אמיתי: ×'+d.coef+'</div>';
-                  }
-                  card += '<button class="btn sec" onclick="reopenAlert(\''+k+'\')" style="margin-top:10px;padding:6px;font-size:11px;width:100%">החזר לטיפול מחדש</button>';
-                  card += '</div>';
-                  return card;
-              }).join('');
+          if(mapAlerts.length){
+            html+='<div style="font-size:10px;font-weight:700;color:var(--acc);letter-spacing:.8px;margin-bottom:8px">🏷 מיפוי שרירים ('+mapAlerts.length+')</div>';
+            html+=mapAlerts.map(function(t){ return renderMappingCard(t); }).join('');
+          }
+          if(coefKeys.length){
+            html+='<div style="font-size:10px;font-weight:700;color:var(--blue2);letter-spacing:.8px;margin:14px 0 8px">⚙️ סוג תרגיל חדש ('+coefKeys.length+')</div>';
+            html+=coefKeys.map(function(k){ return renderCoefCard(decs[k], k); }).join('');
           }
       }
       box.innerHTML=html;
@@ -1238,7 +1174,7 @@ function renderAlerts(){
   }
 }
 
-// fix7: כרטיס בחירת סוג תרגיל — קובע מקדם משקל אמיתי (חל רטרואקטיבית בנפח)
+// fix8: כרטיס בחירת סוג תרגיל — קובע מקדם משקל אמיתי (חל רטרואקטיבית בנפח)
 function renderCoefCard(d, key){
     var btn=function(label,coef){
       return '<button onclick="setExCoef(\''+key+'\','+coef+')" style="flex:1;min-width:70px;padding:9px 4px;border-radius:10px;background:var(--s2);border:1px solid var(--bd);color:var(--tx);cursor:pointer;font-size:12px;font-weight:700">'+label+'<div style="font-size:9px;color:var(--t3);margin-top:2px">×'+coef+'</div></button>';
