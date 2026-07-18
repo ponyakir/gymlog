@@ -415,7 +415,7 @@ canvas{width:100%;border-radius:var(--r);background:var(--s1);display:block}
     <div class="chips" id="chips"></div>
     <canvas id="pgc" height="220"></canvas>
     <div id="prbox" style="margin-top:10px"></div>
-    <div style="font-size:10px;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.8px;margin:18px 0 8px">נפח שבועי (ק"ג מנורמל)</div>
+    <div style="font-size:10px;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.8px;margin:18px 0 8px">נפח שבועי (ק"ג בפועל)</div>
     <canvas id="volc" height="160"></canvas>
     <div style="font-size:10px;color:var(--t3);margin-top:6px;text-align:center">משקל × חזרות · לפי שבוע</div>
 
@@ -799,6 +799,9 @@ function hasInvalidMuscle(id){
 // ══════════════════════════════════════════════════════
 // UNIFIED SCORE — kg / body / time all comparable
 // ══════════════════════════════════════════════════════
+// fix7: מקדם מכונה — מתרגם משקל מוצג למשקל אמיתי (חופשי 1.0, פולי 0.5, מזחלת לפי סינוס הזווית)
+function exCoefOf(e){ var c=parseFloat(e&&e.coef); return (c>0&&isFinite(c))?c:1; }
+
 function bwAt(ts){
   if(!wLog || !wLog.length) return 80;
   var sorted=wLog.slice().sort(function(a,b){return (a.d||a.t||0)-(b.d||b.t||0);});
@@ -1144,39 +1147,35 @@ function detectWeightJumpAlerts(){
 function renderAlerts(){
   try {
       var box=$('alertsBox'); if(!box) return;
-      detectWeightJumpAlerts();
+      // fix7: מערכת ההתראות הישנה (חקירות קפיצה, מעברים) בוטלה.
+      // נשארו: מיפוי שרירים (נדרש לגרפי השריר) + התראת מקדם מכונה בשינוי תרגיל.
       var mapAlerts=detectMuscleMappingAlerts();
-      var transAlerts=detectTransitions();
-      
+
       var decs = getDecisions();
-      var invKeys = Object.keys(decs).filter(function(k){ return k.indexOf('inv_')===0 && decs[k].step!=='done' && !decs[k].dismissed; });
+      var coefKeys = Object.keys(decs).filter(function(k){ return k.indexOf('coef_')===0 && decs[k].step!=='done'; });
       var doneKeys = Object.keys(decs).filter(function(k){ return decs[k].step==='done' || decs[k].dismissed; });
-      
-      updateAlertBadge(mapAlerts.length + transAlerts.length + invKeys.length);
+
+      updateAlertBadge(mapAlerts.length + coefKeys.length);
 
       var isPending = (alertsViewMode === 'pending');
       var html = '<div style="display:flex;background:var(--s2);border:1px solid var(--bd);border-radius:20px;padding:3px;margin-bottom:16px;gap:2px">'
         +'<button onclick="setAlertsMode(\'pending\')" style="flex:1;padding:6px 10px;border-radius:16px;border:none;cursor:pointer;font-size:12px;font-weight:700;'+(isPending?'background:var(--acc);color:#fff':'background:transparent;color:var(--t3)')+'">'
-        +'ממתין ('+(mapAlerts.length+transAlerts.length+invKeys.length)+')</button>'
+        +'ממתין ('+(mapAlerts.length+coefKeys.length)+')</button>'
         +'<button onclick="setAlertsMode(\'done\')" style="flex:1;padding:6px 10px;border-radius:16px;border:none;cursor:pointer;font-size:12px;font-weight:700;'+(!isPending?'background:var(--ok);color:#fff':'background:transparent;color:var(--t3)')+'">'
         +'היסטוריה ('+doneKeys.length+')</button>'
         +'</div>';
 
       if(isPending){
-          if(!mapAlerts.length && !transAlerts.length && !invKeys.length){
+          if(!mapAlerts.length && !coefKeys.length){
             html+='<div style="text-align:center;padding:40px;color:var(--t2)">אין התראות כרגע 🔕</div>';
           } else {
               if(mapAlerts.length){
                 html+='<div style="font-size:10px;font-weight:700;color:var(--acc);letter-spacing:.8px;margin-bottom:8px">🏷 מיפוי שרירים ('+mapAlerts.length+')</div>';
                 html+=mapAlerts.map(function(t){ return renderMappingCard(t); }).join('');
               }
-              if(transAlerts.length){
-                if(mapAlerts.length) html+='<div style="font-size:10px;font-weight:700;color:var(--t2);letter-spacing:.8px;margin:14px 0 8px">🔄 מעברי תרגילים ('+transAlerts.length+')</div>';
-                html+=transAlerts.map(function(t){ return renderTransitionCard(t); }).join('');
-              }
-              if(invKeys.length){
-                html+='<div style="font-size:10px;font-weight:700;color:var(--blue2);letter-spacing:.8px;margin:14px 0 8px">🔍 חקירת שינויים ('+invKeys.length+')</div>';
-                html+=invKeys.map(function(k){ return renderInvestigateCard(decs[k], k); }).join('');
+              if(coefKeys.length){
+                html+='<div style="font-size:10px;font-weight:700;color:var(--blue2);letter-spacing:.8px;margin:14px 0 8px">⚙️ סוג תרגיל חדש ('+coefKeys.length+')</div>';
+                html+=coefKeys.map(function(k){ return renderCoefCard(decs[k], k); }).join('');
               }
           }
       } else {
@@ -1200,6 +1199,9 @@ function renderAlerts(){
                   } else if (k.indexOf('trans_') === 0) {
                       rawOldId = d.oldId || k.replace('trans_','');
                       rawNewId = d.newId;
+                  } else if (k.indexOf('coef_') === 0) {
+                      rawOldId = d.exId;
+                      rawNewId = d.exId;
                   } else {
                       rawOldId = d.oldId || k;
                       rawNewId = d.newId;
@@ -1209,6 +1211,7 @@ function renderAlerts(){
                   var newN = 'לא נבחר';
                   if(rawNewId) newN = getExName(rawNewId);
                   if(k.indexOf('inplace_') === 0) newN = oldN + ' (עודכן)';
+                  if(k.indexOf('coef_') === 0){ oldN = d.oldName || oldN; newN = d.newName || newN; }
                   
                   var card = '<div style="background:var(--s1);border:1px solid '+statusColor+';border-radius:14px;padding:16px;margin-bottom:10px;opacity:0.8">';
                   card += '<div style="font-size:11px;color:'+statusColor+';font-weight:700;margin-bottom:6px;display:flex;justify-content:space-between;">'
@@ -1220,6 +1223,7 @@ function renderAlerts(){
                   } else {
                       card += '<div style="font-size:13px;margin-bottom:4px"><b>'+oldN+'</b> ➔ <b>'+newN+'</b></div>';
                       if(d.ratio) card += '<div style="font-size:11px;color:var(--t2)">יחס המרה: '+d.ratio.toFixed(2)+'x</div>';
+                      if(d.coef) card += '<div style="font-size:11px;color:var(--t2)">מקדם משקל אמיתי: ×'+d.coef+'</div>';
                   }
                   card += '<button class="btn sec" onclick="reopenAlert(\''+k+'\')" style="margin-top:10px;padding:6px;font-size:11px;width:100%">החזר לטיפול מחדש</button>';
                   card += '</div>';
@@ -1232,6 +1236,42 @@ function renderAlerts(){
       console.error("Alerts error:", e);
       if($('alertsBox')) $('alertsBox').innerHTML = '<div style="color:var(--red);text-align:center;padding:20px">שגיאה בתצוגה: ' + e.message + '</div>';
   }
+}
+
+// fix7: כרטיס בחירת סוג תרגיל — קובע מקדם משקל אמיתי (חל רטרואקטיבית בנפח)
+function renderCoefCard(d, key){
+    var btn=function(label,coef){
+      return '<button onclick="setExCoef(\''+key+'\','+coef+')" style="flex:1;min-width:70px;padding:9px 4px;border-radius:10px;background:var(--s2);border:1px solid var(--bd);color:var(--tx);cursor:pointer;font-size:12px;font-weight:700">'+label+'<div style="font-size:9px;color:var(--t3);margin-top:2px">×'+coef+'</div></button>';
+    };
+    var h = '<div style="background:var(--s1);border:1px solid var(--blue2);border-radius:14px;padding:16px;margin-bottom:10px">';
+    h += '<div style="font-size:13px;margin-bottom:12px">זיהיתי שינוי מתרגיל <b>'+(d.oldName||'')+'</b> לתרגיל <b>'+(d.newName||'')+'</b> — סוג התרגיל החדש?</div>';
+    h += '<div style="display:flex;gap:6px;margin-bottom:8px">'+btn('חופשי',1)+btn('פולי (2:1)',0.5)+'</div>';
+    h += '<div style="font-size:10px;color:var(--t2);margin:6px 0 4px">מכונה — לפי זווית ביחס לרצפה:</div>';
+    h += '<div style="display:flex;gap:6px;flex-wrap:wrap">'+btn('מזחלת 30°',0.5)+btn('מזחלת 45°',0.71)+btn('האק / 60°',0.87)+btn('אנכית 90°',1)+'</div>';
+    h += '<button onclick="setExCoefCustom(\''+key+'\')" style="width:100%;margin-top:8px;padding:8px;border-radius:10px;background:transparent;border:1px dashed var(--bd);color:var(--t2);cursor:pointer;font-size:11px">זווית אחרת (חישוב סינוס אוטומטי)</button>';
+    h += '</div>';
+    return h;
+}
+
+function setExCoef(key, coef){
+    var decs=getDecisions();
+    var d=decs[key]; if(!d) return;
+    var ex=allEx().filter(function(e){return e.id===d.exId;})[0];
+    if(ex){ ex.coef=coef; saveEx(); }
+    d.step='done'; d.coef=coef;
+    saveDecisions(decs);
+    toast('נשמר: מקדם ×'+coef+' — הנפח חושב מחדש רטרואקטיבית');
+    renderAlerts();
+    try{ renderProg(); }catch(e){}
+}
+
+function setExCoefCustom(key){
+    var a=prompt('זווית המכונה ביחס לרצפה (מעלות, 1-90):');
+    if(a===null) return;
+    var deg=parseFloat(a);
+    if(isNaN(deg)||deg<=0||deg>90){ toast('זווית לא תקינה'); return; }
+    var coef=Math.round(Math.sin(deg*Math.PI/180)*100)/100;
+    setExCoef(key, coef);
 }
 
 function reopenAlert(key){
@@ -1268,10 +1308,9 @@ function dismissTransition(key) {
 function updateAlertBadge(total){
   var bg=$('nNbadge'); if(!bg) return;
   if(typeof total === 'undefined') {
-      detectWeightJumpAlerts();
       var decs = getDecisions();
-      var invKeys = Object.keys(decs).filter(function(k){ return k.indexOf('inv_')===0 && decs[k].step!=='done' && !decs[k].dismissed; });
-      total = detectMuscleMappingAlerts().length + detectTransitions().length + invKeys.length;
+      var coefKeys = Object.keys(decs).filter(function(k){ return k.indexOf('coef_')===0 && decs[k].step!=='done'; });
+      total = detectMuscleMappingAlerts().length + coefKeys.length;
   }
   if(total>0){ bg.textContent=total; bg.style.display='block'; }
   else { bg.style.display='none'; }
@@ -2453,96 +2492,92 @@ function drawChart(){
 
   if(typeof selEx==='string' && selEx.indexOf('__m__')===0){
     var muscleGroup=selEx.slice(5);
-    var groupEx=allEx().filter(function(e){ return !hasInvalidMuscle(e.id) && resolveMuscles(e.id).indexOf(muscleGroup)>=0; });
-    if(!groupEx.length){ noData('אין תרגילים ממופים ב-'+muscleGroup); return; }
-    
-    var exHistories={};
-    groupEx.forEach(function(ex){ exHistories[ex.id] = getExHistory(ex.id); });
-
+    // fix7: גרף נפח לשריר — ק"ג בפועל כולל מקדם מכונה, באותם כללים כמו הגרף הכללי,
+    // מפוצל לפי יחסי השרירים של כל תרגיל. תרגיל זמן מקבל נתח ממוצע מהאימון.
     var pts=[];
     sessions.slice().sort(function(a,b){return a.start-b.start;}).forEach(function(s){
-      var wsum=0, wtot=0, updated=false;
-      groupEx.forEach(function(ex){
-        var hist=exHistories[ex.id];
-        var currPt=hist.filter(function(p){return p.d===s.start;})[0];
-        if(currPt && hist.length > 0){
-          updated=true;
-          var myIdx = hist.indexOf(currPt);
-          
-          if(pgMode==='last'){
-              if(myIdx > 0){
-                  var prev = hist[myIdx-1].w;
-                  if(prev>0){
-                      var pct=(currPt.w-prev)/prev*100;
-                      var split=resolveMuscleSplit(ex.id);
-                      var frac=split[muscleGroup]||(1/Math.max(1,resolveMuscles(ex.id).length));
-                      wsum += pct*frac; wtot += frac;
-                  }
-              }
-          } else {
-              var baseW=hist[0].w;
-              if(baseW>0){
-                  var pct=(currPt.w-baseW)/baseW*100;
-                  var split=resolveMuscleSplit(ex.id);
-                  var frac=split[muscleGroup]||(1/Math.max(1,resolveMuscles(ex.id).length));
-                  wsum += pct*frac; wtot += frac;
-              }
-          }
-        }
+      var bw=bwAt(s.start);
+      var vols={}, timeIds=[], nonSum=0, nonCnt=0;
+      Object.keys(s.sets||{}).forEach(function(exId){
+        var e=allEx().filter(function(x){return x.id===exId})[0];
+        if(!e||hasInvalidMuscle(exId)) return;
+        var done=(s.sets[exId]||[]).filter(function(x){return x.done;});
+        if(!done.length) return;
+        if(e.t==='time'){ timeIds.push(exId); return; }
+        var v=0;
+        done.forEach(function(st){
+          var reps=parseReps(st.r,e.r), w=parseFloat(st.w)||0;
+          v += e.t==='body' ? (bw*0.5+w)*reps : w*reps*exCoefOf(e);
+        });
+        vols[exId]=v; nonSum+=v; nonCnt++;
       });
-      if(updated && wtot>0) pts.push({d: s.start, pct: wsum/wtot});
+      var share=nonCnt>0?nonSum/nonCnt:0;
+      timeIds.forEach(function(id){ vols[id]=share; });
+      var mv=0;
+      Object.keys(vols).forEach(function(id){
+        var split=resolveMuscleSplit(id);
+        var frac=split[muscleGroup]||0;
+        if(frac>0) mv+=vols[id]*frac;
+      });
+      if(mv>0) pts.push({d:s.start, v:mv});
     });
 
     if(pts.length<2){ noData('צריך לפחות 2 אימונים עם '+muscleGroup); return; }
-    pts=pts.filter(function(p,i){return i===0||p.d!==pts[i-1].d;}); 
-    
-    var pad={l:38,r:16,t:20,b:28};
+    if(pts.length>12) pts=pts.slice(-12);
+
+    var pad={l:46,r:14,t:22,b:28};
     var gW=CW-pad.l-pad.r, gH=CH-pad.t-pad.b;
-    var pctVals=pts.map(function(p){return p.pct;});
-    var mn=Math.min.apply(null,pctVals), mx=Math.max.apply(null,pctVals);
-    mn=Math.min(mn,-2); mx=Math.max(mx,2); var rng=mx-mn||1;
-    function px2(i){return pad.l+i/(pts.length-1)*gW;}
+    var vals=pts.map(function(p){return p.v;});
+    var mx=Math.max.apply(null,vals), mn=0;
+    var rng=mx-mn||1;
+    var maxIdx=vals.indexOf(mx);
+    function px2(i){return pad.l+(pts.length>1?i/(pts.length-1)*gW:gW/2);}
     function py2(v){return pad.t+gH-(v-mn)/rng*gH;}
-    
-    ctx.strokeStyle='rgba(255,255,255,.15)'; ctx.lineWidth=1; ctx.setLineDash([4,4]);
-    var y0=py2(0); ctx.beginPath(); ctx.moveTo(pad.l,y0); ctx.lineTo(CW-pad.r,y0); ctx.stroke();
-    ctx.setLineDash([]);
-    
-    [mn, (mn+mx)/2, mx].forEach(function(v){
-      var y=py2(v);
-      ctx.strokeStyle='rgba(255,255,255,.04)'; ctx.lineWidth=1;
-      ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(CW-pad.r,y); ctx.stroke();
+
+    for(var gi=0; gi<=3; gi++){
+      var gv=mx-(rng/3)*gi, gy=py2(gv);
+      ctx.strokeStyle='rgba(255,255,255,.05)'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(pad.l,gy); ctx.lineTo(CW-pad.r,gy); ctx.stroke();
       ctx.fillStyle='#555'; ctx.font='9px Heebo'; ctx.textAlign='right';
-      ctx.fillText((v>=0?'+':'')+v.toFixed(1)+'%',pad.l-3,y+3);
-    });
-    
-    ctx.beginPath(); ctx.moveTo(px2(0),py2(pts[0].pct));
-    for(var ii=1;ii<pts.length;ii++) ctx.lineTo(px2(ii),py2(pts[ii].pct));
+      ctx.fillText(Math.round(gv).toLocaleString(),pad.l-4,gy+3);
+    }
+
+    ctx.beginPath(); ctx.moveTo(px2(0),py2(pts[0].v));
+    for(var ii=1;ii<pts.length;ii++) ctx.lineTo(px2(ii),py2(pts[ii].v));
     ctx.lineTo(px2(pts.length-1),py2(0)); ctx.lineTo(px2(0),py2(0)); ctx.closePath();
     var gr2=ctx.createLinearGradient(0,pad.t,0,pad.t+gH);
     gr2.addColorStop(0,'rgba(201,168,76,.3)'); gr2.addColorStop(1,'rgba(201,168,76,0)');
     ctx.fillStyle=gr2; ctx.fill();
-    
-    ctx.beginPath(); ctx.moveTo(px2(0),py2(pts[0].pct));
-    for(var ii=1;ii<pts.length;ii++) ctx.lineTo(px2(ii),py2(pts[ii].pct));
+
+    ctx.beginPath(); ctx.moveTo(px2(0),py2(pts[0].v));
+    for(var ii=1;ii<pts.length;ii++) ctx.lineTo(px2(ii),py2(pts[ii].v));
     ctx.strokeStyle='#c9a84c'; ctx.lineWidth=2; ctx.stroke();
-    
+
     pts.forEach(function(p,ii){
-      var x=px2(ii), y=py2(p.pct);
-      ctx.beginPath(); ctx.arc(x,y,3,0,Math.PI*2);
-      ctx.fillStyle=p.pct>=0?'#c9a84c':'#ef4444'; ctx.fill();
-      window.chartHitboxes.push({x:x, y:y, d:p.d, pct:p.pct, prevPct: ii>0?pts[ii-1].pct:undefined, mode:'group', muscle:muscleGroup});
+      var x=px2(ii), y=py2(p.v);
+      ctx.beginPath(); ctx.arc(x,y,ii===maxIdx?4:3,0,Math.PI*2);
+      ctx.fillStyle=ii===maxIdx?'#e8c96a':'#c9a84c'; ctx.fill();
+      if(ii===maxIdx){
+        ctx.fillStyle='#e8c96a'; ctx.font='bold 9px Heebo'; ctx.textAlign='center';
+        ctx.fillText(Math.round(p.v).toLocaleString(), x, Math.max(10,y-8));
+      }
     });
-    
+
+    ctx.fillStyle='#555'; ctx.font='9px Heebo'; ctx.textAlign='center';
+    [0,Math.floor((pts.length-1)/2),pts.length-1].forEach(function(i){
+      var dd=new Date(pts[i].d); ctx.fillText(dd.getDate()+'/'+(dd.getMonth()+1),px2(i),CH-6);
+    });
+
     ctx.fillStyle='#f0eeee'; ctx.font='bold 11px Heebo'; ctx.textAlign='center';
-    ctx.fillText(muscleGroup+' — % שיפור',CW/2,13);
-    
-    var lastPct=pts[pts.length-1].pct;
-    var modeLabel2 = pgMode==='last'?'בממוצע מאימון קודם':'מנקודת ההתחלה';
+    ctx.fillText(muscleGroup+' — נפח (ק"ג בפועל)',CW/2,13);
+
+    var lastV=pts[pts.length-1].v, prevV=pts.length>1?pts[pts.length-2].v:0;
+    var diffTxt = prevV>0 ? ((lastV>=prevV?'+':'')+Math.round((lastV-prevV)/prevV*100)+'% מהאימון הקודם') : '';
     $('prbox').innerHTML='<div style="background:var(--s1);border:1px solid var(--bd);border-radius:10px;padding:10px 14px;text-align:center">'+
-      '<span style="font-size:12px;color:var(--t2)">שיפור '+modeLabel2+' משוקלל ב-'+muscleGroup+': </span>'+
-      '<span style="font-size:18px;font-weight:900;color:'+(lastPct>=0?'var(--ok2)':'var(--red)')+'">'+
-      (lastPct>=0?'+':'')+lastPct.toFixed(1)+'%</span></div>';
+      '<span style="font-size:12px;color:var(--t2)">נפח אחרון ב'+muscleGroup+': </span>'+
+      '<span style="font-size:18px;font-weight:900;color:var(--acc2)">'+Math.round(lastV).toLocaleString()+' ק"ג</span>'+
+      (diffTxt?'<div style="font-size:11px;color:'+(lastV>=prevV?'var(--ok2)':'var(--red)')+';margin-top:3px">'+diffTxt+'</div>':'')+
+      '<div style="font-size:10px;color:var(--t3);margin-top:3px">שיא: '+Math.round(mx).toLocaleString()+' ק"ג</div></div>';
     return;
   }
 
@@ -2678,7 +2713,7 @@ function drawVolChart(){
       var tex=allEx().filter(function(e){return e.id===tgtId})[0];
       var ref=ex||tex;
       if(!ref || hasInvalidMuscle(ref.id)) return; 
-      var mult=lookupMult(VM.map[tgtId], s.start);
+      // fix6: נפח = ק"ג בפועל, ללא מקדמי המרה. הנרמול נשאר בגרף הכוח בלבד
       var doneSets=(s.sets[exId]||[]).filter(function(set){return set.done;});
       if(!doneSets.length) return;
       // תרגיל זמן: לא נמדד בק"ג — יקבל נתח שווה לממוצע שאר התרגילים (למשל 1/9 מאימון של 9)
@@ -2688,8 +2723,8 @@ function drawVolChart(){
         var reps=parseReps(set.r, ref.r);
         var w=parseFloat(set.w)||0;
         // תרגילי משקל גוף: 50% ממשקל הגוף
-        if(ref.t==='body') sum+=(bw*0.5+w)*reps*mult;
-        else sum+=w*reps*mult;
+        if(ref.t==='body') sum+=(bw*0.5+w)*reps;
+        else sum+=w*reps*exCoefOf(ref);
       });
     });
     if(timeCnt>0 && nonTimeCnt>0) sum += timeCnt*(sum/nonTimeCnt);
@@ -2886,7 +2921,7 @@ function calcExVol(id){
     var w0=parseFloat(s.w)||0;
     // תרגיל זמן: לא נמדד בק"ג — לא מציגים נפח. משקל גוף: 50%
     if(ex&&ex.t==='time') return acc;
-    var w=ex&&ex.t==='body'?(bw_*0.5+w0):w0;
+    var w=ex&&ex.t==='body'?(bw_*0.5+w0):w0*exCoefOf(ex);
     return acc+w*parseReps(s.r, ex?ex.r:'');
   },0);
 }
@@ -3021,19 +3056,27 @@ function doChgEx(){
   try{ closeOvl('chgOvl'); }catch(e){}
   try{ toast('השינויים נשמרו'); }catch(e){}
 
-  // fix4: שם שונה או קפיצת משקל ≥25% בתרגיל עם היסטוריה → פתיחת חקירת שינוי אוטומטית
+  // fix7: שינוי שם תרגיל עם היסטוריה → התראת בחירת סוג (חופשי/פולי/מכונה) לקביעת מקדם משקל אמיתי
   try{
     var nameChanged = _oldName.trim() !== newName;
-    // fix5: קפיצת משקל רלוונטית רק בתרגילי ק"ג — בתרגילי גוף/זמן שינוי שם לבדו מפעיל חקירה
-    var weightJump = newType==='kg' && _refW > 0 && newW > 0 && Math.abs(newW - _refW)/_refW >= 0.25;
-    if(_hadHistory && (nameChanged || weightJump)){
+    if(_hadHistory && nameChanged){
       var _decs = getDecisions();
-      var _pendingInv = Object.keys(_decs).some(function(k){
-        return k.indexOf('inv_'+chgExId+'_')===0 && _decs[k].step!=='done' && !_decs[k].dismissed;
+      var _pending = Object.keys(_decs).some(function(k){
+        return k.indexOf('coef_'+chgExId+'_')===0 && _decs[k].step!=='done';
       });
-      if(!_pendingInv) createInvestigateAlert(chgExId, Date.now(), _refW, newW, true);
+      if(!_pending){
+        _decs['coef_'+chgExId+'_'+Date.now()] = {
+          type:'coef', step:'pending', exId: chgExId,
+          oldName: _oldName, newName: newName, date: Date.now()
+        };
+        saveDecisions(_decs);
+        alertsViewMode='pending';
+        renderAlerts();
+        goTo('N');
+        toast('בחר את סוג התרגיל החדש למטה');
+      }
     }
-  }catch(e){ console.error('auto-investigate error', e); }
+  }catch(e){ console.error('coef-alert error', e); }
 
   chgErr.textContent = '';
 }
