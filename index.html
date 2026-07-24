@@ -800,7 +800,64 @@ function hasInvalidMuscle(id){
 // UNIFIED SCORE — kg / body / time all comparable
 // ══════════════════════════════════════════════════════
 // fix7: מקדם מכונה — מתרגם משקל מוצג למשקל אמיתי (חופשי 1.0, פולי 0.5, מזחלת לפי סינוס הזווית)
-function exCoefOf(e){ var c=parseFloat(e&&e.coef); return (c>0&&isFinite(c))?c:1; }
+// fix9: המקדם נשמר כרשימת תקופות עם תאריך תחילה. אימון מקבל את המקדם שהיה תקף
+// ביום שבו בוצע — כך שינוי תרגיל משפיע קדימה בלבד והעבר לעולם לא משתנה.
+function exCoefAt(e, ts){
+  if(!e) return 1;
+  var h = e.coefHist;
+  if(h && h.length){
+    var val = 1;
+    for(var i=0;i<h.length;i++){ if(h[i].from <= ts) val = h[i].c; }
+    return (val>0&&isFinite(val)) ? val : 1;
+  }
+  return 1;
+}
+
+// fix11: תיקון חד-פעמי — שינויי סוג שנעשו לפני מנגנון התאריכים לא נרשמו.
+// לכל תרגיל ללא typeHist נרשם הסוג הנוכחי כתקף מהיום קדימה, והעבר משוחזר
+// מהסוג שבו הסטים ההיסטוריים באמת נרשמו. מריצים פעם אחת בלבד.
+// fix11: כלי ידני חד-פעמי — לתיקון שינוי סוג שנעשה לפני מנגנון התאריכים.
+// שימוש מהקונסולה: fixPastType('A9','time') → כל האימונים עד היום יחושבו כ-time
+window.fixPastType = function(exId, pastType){
+  var e = allEx().filter(function(x){return x.id===exId;})[0];
+  if(!e){ console.warn('תרגיל לא נמצא:', exId); return; }
+  e.typeHist = [{from: 0, t: pastType, t0: pastType}, {from: Date.now(), t: e.t}];
+  saveEx();
+  try{ renderProg(); }catch(err){}
+  console.log('תוקן:', exId, '— עבר:', pastType, '· מהיום:', e.t);
+};
+
+// fix10: סוג התרגיל (kg/body/time) נשמר גם הוא עם תאריך תחילה.
+// כל אימון מחושב לפי הסוג שהיה תקף ביום שבו בוצע — שינוי הגדרות אינו נוגע בעבר.
+function exTypeAt(e, ts){
+  if(!e) return 'kg';
+  var h = e.typeHist;
+  if(h && h.length){
+    var val = null;
+    for(var i=0;i<h.length;i++){ if(h[i].from <= ts) val = h[i].t; }
+    if(val) return val;
+    return h[0].t0 || e.t || 'kg'; // לפני השינוי הראשון: הסוג המקורי
+  }
+  return e.t || 'kg';
+}
+// רישום שינוי סוג מתאריך נתון קדימה (העבר שומר את הסוג הקודם)
+function setExTypeFrom(e, oldType, newType, fromTs){
+  if(!e || oldType === newType) return;
+  if(!e.typeHist) e.typeHist = [];
+  if(!e.typeHist.length) e.typeHist.push({from: 0, t: oldType, t0: oldType});
+  e.typeHist = e.typeHist.filter(function(x){ return x.from !== fromTs; });
+  e.typeHist.push({from: fromTs, t: newType});
+  e.typeHist.sort(function(a,b){ return a.from-b.from; });
+}
+// רישום מקדם חדש מתאריך נתון קדימה (ללא נגיעה בעבר)
+function setExCoefFrom(e, coef, fromTs){
+  if(!e) return;
+  if(!e.coefHist) e.coefHist = [];
+  e.coefHist = e.coefHist.filter(function(x){ return x.from !== fromTs; });
+  e.coefHist.push({from: fromTs, c: coef});
+  e.coefHist.sort(function(a,b){ return a.from-b.from; });
+  delete e.coef; // ביטול השדה הישן שגרם לדריסה רטרואקטיבית
+}
 
 function bwAt(ts){
   if(!wLog || !wLog.length) return 80;
@@ -1193,10 +1250,11 @@ function setExCoef(key, coef){
     var decs=getDecisions();
     var d=decs[key]; if(!d) return;
     var ex=allEx().filter(function(e){return e.id===d.exId;})[0];
-    if(ex){ ex.coef=coef; saveEx(); }
+    // fix9: המקדם תקף מרגע השינוי קדימה בלבד — אימוני העבר נשארים כפי שהיו
+    if(ex){ setExCoefFrom(ex, coef, d.date || Date.now()); saveEx(); }
     d.step='done'; d.coef=coef;
     saveDecisions(decs);
-    toast('נשמר: מקדם ×'+coef+' — הנפח חושב מחדש רטרואקטיבית');
+    toast('נשמר: מקדם ×'+coef+' — חל מהיום קדימה, העבר לא השתנה');
     renderAlerts();
     try{ renderProg(); }catch(e){}
 }
@@ -2439,11 +2497,12 @@ function drawChart(){
         if(!e||hasInvalidMuscle(exId)) return;
         var done=(s.sets[exId]||[]).filter(function(x){return x.done;});
         if(!done.length) return;
-        if(e.t==='time'){ timeIds.push(exId); return; }
+        var _t=exTypeAt(e, s.start); // הסוג שהיה תקף ביום האימון
+        if(_t==='time'){ timeIds.push(exId); return; }
         var v=0;
         done.forEach(function(st){
           var reps=parseReps(st.r,e.r), w=parseFloat(st.w)||0;
-          v += e.t==='body' ? (bw*0.5+w)*reps : w*reps*exCoefOf(e);
+          v += _t==='body' ? (bw*0.5+w)*reps : w*reps*exCoefAt(e, s.start);
         });
         vols[exId]=v; nonSum+=v; nonCnt++;
       });
@@ -2653,14 +2712,15 @@ function drawVolChart(){
       var doneSets=(s.sets[exId]||[]).filter(function(set){return set.done;});
       if(!doneSets.length) return;
       // תרגיל זמן: לא נמדד בק"ג — יקבל נתח שווה לממוצע שאר התרגילים (למשל 1/9 מאימון של 9)
-      if(ref.t==='time'){ timeCnt++; return; }
+      var _rt=exTypeAt(ref, s.start); // הסוג שהיה תקף ביום האימון
+      if(_rt==='time'){ timeCnt++; return; }
       nonTimeCnt++;
       doneSets.forEach(function(set){
         var reps=parseReps(set.r, ref.r);
         var w=parseFloat(set.w)||0;
         // תרגילי משקל גוף: 50% ממשקל הגוף
-        if(ref.t==='body') sum+=(bw*0.5+w)*reps;
-        else sum+=w*reps*exCoefOf(ref);
+        if(_rt==='body') sum+=(bw*0.5+w)*reps;
+        else sum+=w*reps*exCoefAt(ref, s.start);
       });
     });
     if(timeCnt>0 && nonTimeCnt>0) sum += timeCnt*(sum/nonTimeCnt);
@@ -2857,7 +2917,7 @@ function calcExVol(id){
     var w0=parseFloat(s.w)||0;
     // תרגיל זמן: לא נמדד בק"ג — לא מציגים נפח. משקל גוף: 50%
     if(ex&&ex.t==='time') return acc;
-    var w=ex&&ex.t==='body'?(bw_*0.5+w0):w0*exCoefOf(ex);
+    var w=ex&&ex.t==='body'?(bw_*0.5+w0):w0*exCoefAt(ex, (curSess&&curSess.start)||Date.now());
     return acc+w*parseReps(s.r, ex?ex.r:'');
   },0);
 }
@@ -2939,6 +2999,8 @@ function doChgEx(){
   }catch(e){}
 
   ex.n = newName;
+  // fix10: שינוי סוג נרשם עם תאריך — אימוני העבר ממשיכים להיות מחושבים בסוג הישן
+  if(_hadHistory && ex.t !== newType) setExTypeFrom(ex, ex.t, newType, Date.now());
   ex.t = newType;
   ex.s = newSets;
   ex.w = newW;
