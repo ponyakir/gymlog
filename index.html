@@ -590,6 +590,7 @@ function loadAll(){
   if(exA&&exA.length) WKT.A.ex=exA;
   if(exB&&exB.length) WKT.B.ex=exB;
   if(!exA&&!exB) ld('ex',[]).forEach(e=>{ if(WKT[e._k]) WKT[e._k].ex.push(e) });
+  try{ cleanLegacyRatios(); }catch(e){ console.warn('cleanup:', e); }
 }
 function saveP(){ sv('p',P) }
 function saveW(){ sv('w',wLog) }
@@ -816,6 +817,29 @@ function exCoefAt(e, ts){
 // fix11: תיקון חד-פעמי — שינויי סוג שנעשו לפני מנגנון התאריכים לא נרשמו.
 // לכל תרגיל ללא typeHist נרשם הסוג הנוכחי כתקף מהיום קדימה, והעבר משוחזר
 // מהסוג שבו הסטים ההיסטוריים באמת נרשמו. מריצים פעם אחת בלבד.
+// fix12: ניקוי חד-פעמי — ההחלטות הישנות (מעברים ותיקוני עבר) נשארו בנתונים
+// ועדיין הכפילו את ההיסטוריה ביחסי המרה. כאן היחסים מנוטרלים ל-1, וקישורי
+// המזהים בין תרגילים נשמרים כדי שרצף התרגיל בגרף לא יישבר.
+function cleanLegacyRatios(){
+  if(ld('ratiosCleaned', false)) return;
+  var decs = ld('decisions', {});
+  var changed = 0;
+  Object.keys(decs).forEach(function(k){
+    var d = decs[k];
+    if(!d || typeof d !== 'object') return;
+    if(d.ratio !== undefined || d.anchorW !== undefined || d.oldLastW !== undefined){
+      d.ratio = 1;
+      delete d.anchorW;
+      delete d.oldLastW;
+      changed++;
+    }
+  });
+  if(changed) sv('decisions', decs);
+  sv('bridges', {});
+  sv('ratiosCleaned', true);
+  console.log('נוקו', changed, 'יחסי המרה ישנים');
+}
+
 // fix11: כלי ידני חד-פעמי — לתיקון שינוי סוג שנעשה לפני מנגנון התאריכים.
 // שימוש מהקונסולה: fixPastType('A9','time') → כל האימונים עד היום יחושבו כ-time
 window.fixPastType = function(exId, pastType){
@@ -882,14 +906,17 @@ function sessionExScore(session, ex){
   var done=sets.filter(function(x){return x.done && !x.v;});
   if(!done.length) return null;
   var bw=bwAt(session.start);
+  // fix12: אותם כללים כמו הנפח — סוג ומקדם לפי תאריך האימון, משקל גוף 50%,
+  // ותרגיל זמן נמדד בשניות בלבד (לא מוכפל במשקל גוף)
+  var _t=exTypeAt(ex, session.start);
+  var _c=exCoefAt(ex, session.start);
   var vals=done.map(function(x){
     var repsOrTime=parseReps(x.r, ex.r);
     var w=parseFloat(x.w)||0;
     // 1RM משוערך (Epley): משקל × (1 + חזרות/30) — מנטרל רעש של תנודות בחזרות
-    if(ex.t==='kg') return w*(1+repsOrTime/30);
-    if(ex.t==='body') return (bw+w)*(1+repsOrTime/30);
-    if(ex.t==='time') return (bw+w)*repsOrTime; // בזמן: יותר זמן = שיפור, פחות = נסיגה
-    return w*(1+repsOrTime/30);
+    if(_t==='body') return (bw*0.5+w)*(1+repsOrTime/30);
+    if(_t==='time') return repsOrTime; // בזמן: השנייה היא המדד. יותר זמן = שיפור
+    return w*_c*(1+repsOrTime/30);
   });
   return Math.max.apply(null, vals);
 }
@@ -1067,139 +1094,11 @@ function detectMuscleMappingAlerts(){
   return out;
 }
 
-function detectTransitions(){
-  var decisions=getDecisions();
-  var curEx={}; allEx().forEach(function(e){curEx[e.id]=e;});
-  var histEx={};
 
-  sessions.forEach(function(s){
-    Object.keys(s.sets||{}).forEach(function(id){
-      var sets=s.sets[id];
-      if(!sets || !Array.isArray(sets) || !sets.some(function(x){return x.done;})) return;
-      if(!histEx[id]) histEx[id]={first:s.start, last:s.start, name:getExName(id), sessions:0};
-      histEx[id].sessions++;
-      if(s.start<histEx[id].first) histEx[id].first=s.start;
-      if(s.start>histEx[id].last) histEx[id].last=s.start;
-    });
-  });
 
-  var raw=[];
-  // fix: אין המתנת 30 יום — תרגיל עם היסטוריה שהוסר מהתוכנית הוא מועמד מיידי
-  var ghosts=Object.keys(histEx).filter(function(id){
-    return !curEx[id] && histEx[id].sessions >= 1;
-  });
-
-  ghosts.forEach(function(ghostId){
-     if(hasInvalidMuscle(ghostId)) return; 
-     var ghost=histEx[ghostId];
-     var ghostMuscles=resolveMuscles(ghostId);
-     var candidates=[];
-     
-     allEx().forEach(function(newEx){
-         if(hasInvalidMuscle(newEx.id)) return; 
-         var newMuscles=resolveMuscles(newEx.id);
-         var shares=newMuscles.some(function(m){return ghostMuscles.indexOf(m)>=0;});
-         if(!shares) return; 
-         var newH=histEx[newEx.id]; if(!newH) return;
-         var gap=newH.first-ghost.last;
-         if(gap>=-14*86400000 && gap<120*86400000){ 
-             candidates.push({ex:newEx, first:newH.first});
-         }
-     });
-     
-     if(candidates.length>0){
-         var key = 'trans_' + ghostId;
-         var alreadyResolved = Object.keys(decisions).some(function(k) {
-             if ((k === key) || 
-                 (k.indexOf(ghostId + '_to_') === 0) || 
-                 (k.indexOf('inplace_' + ghostId) === 0) ||
-                 (k.indexOf('inv_' + ghostId) === 0)) {
-                 return decisions[k].step === 'done' || decisions[k].dismissed;
-             }
-             return false;
-         });
-         
-         if(alreadyResolved) return; 
-
-         var lastW = 0;
-         var lastD = ghost.last;
-         sessions.forEach(function(s){
-             var sts = (s.sets||{})[ghostId];
-             if(sts && sts.length){
-                 sts.forEach(function(st){
-                     if(st.done && st.w > lastW) lastW = st.w;
-                 });
-             }
-         });
-
-         raw.push({
-             type: 'ghost',
-             key: key,
-             oldExId: ghostId,
-             oldExName: ghost.name,
-             lastW: lastW,
-             lastDate: lastD,
-             muscles: ghostMuscles.join(', '),
-             candidates: candidates
-         });
-     }
-  });
-  return raw;
-}
-
-var alertsViewMode = 'pending';
-
-function setAlertsMode(mode){
-  alertsViewMode=mode;
-  renderAlerts();
-}
 
 // זיהוי אוטומטי של קפיצות משקל (החלפת מכונה/תפיסה שלא תועדה): שינוי ≥40% מול
 // האימון התקין הקודם יוצר התראת חקירה שקטה. אימוני דילואד מדולגים לשני הכיוונים.
-function detectWeightJumpAlerts(){
-  var decs = getDecisions();
-  var changed = false;
-  var byEx = {};
-  sessions.slice().sort(function(a,b){return a.start-b.start;}).forEach(function(s){
-    Object.keys(s.sets||{}).forEach(function(id){
-      var mw = 0;
-      (s.sets[id]||[]).forEach(function(x){ if(x.done && !x.v){ var w=parseFloat(x.w)||0; if(w>mw) mw=w; } });
-      if(mw <= 0) return;
-      if(!byEx[id]) byEx[id]=[];
-      byEx[id].push({d:s.start, mw:mw, deload:!!s.deload});
-    });
-  });
-  Object.keys(byEx).forEach(function(id){
-    var lastNormal = null;
-    byEx[id].forEach(function(p){
-      if(lastNormal && !p.deload){
-        var ratio = p.mw / lastNormal.mw;
-        var absDiff = Math.abs(p.mw - lastNormal.mw);
-        // שינוי יחסי ≥40% וגם הפרש מוחלט ≥12 ק"ג — מסנן קפיצות טבעיות במשקולות קטנות
-        if((ratio >= 1.4 || ratio <= 0.6) && absDiff >= 12){
-          var key = 'inv_' + id + '_' + p.d;
-          var covered = decs[key] !== undefined;
-          if(!covered){
-            covered = Object.keys(decs).some(function(k){
-              if(k.indexOf('inplace_') !== 0 && k.indexOf('inv_') !== 0) return false;
-              var d2 = decs[k];
-              var pid = d2.exId || k.replace(/^(inplace_|inv_)/,'').split('_')[0];
-              if(pid !== id) return false;
-              var td = d2.transDate || d2.date || 0;
-              return td && Math.abs(td - p.d) <= 3*86400000;
-            });
-          }
-          if(!covered){
-            decs[key] = {step:'pending', type:'investigate', exId:id, date:p.d, oldW:lastNormal.mw, newW:p.mw, src:'auto'};
-            changed = true;
-          }
-        }
-      }
-      if(!p.deload) lastNormal = p;
-    });
-  });
-  if(changed) saveDecisions(decs);
-}
 
 function renderAlerts(){
   try {
@@ -1268,17 +1167,6 @@ function setExCoefCustom(key){
     setExCoef(key, coef);
 }
 
-function reopenAlert(key){
-    var decs = getDecisions();
-    delete decs[key];
-    saveDecisions(decs);
-    var b = getBridges();
-    if(b[key]) { delete b[key]; saveBridges(b); }
-    alertsViewMode = 'pending';
-    toast('ההתראה חזרה לרשימת הממתינים');
-    renderAlerts();
-    if($('vP') && $('vP').classList.contains('on')) renderProg();
-}
 
 function deleteAlertPermanent(key){
     if(!confirm("למחוק התראה זו מההיסטוריה לצמיתות?")) return;
@@ -1387,39 +1275,6 @@ function saveMappingDecision(encId){
   if($('vP')&&$('vP').classList.contains('on')) renderProg();
 }
 
-function renderTransitionCard(t){
-  var dStr = t.lastDate ? new Date(t.lastDate).toLocaleDateString('he-IL') : 'לא ידוע';
-  var mStr = t.muscles || 'לא ידוע';
-  var wStr = t.lastW > 0 ? t.lastW + ' ק"ג' : 'לא ידוע';
-
-  var html = '<div style="background:var(--s1);border:1px solid var(--acc);border-radius:14px;padding:16px;margin-bottom:10px">';
-  html += '<div style="font-size:13px;margin-bottom:10px;font-weight:700;">התרגיל <b>'+t.oldExName+'</b> הפסיק להופיע.</div>';
-  
-  html += '<div style="background:var(--s2);border:1px solid var(--bd);padding:10px;border-radius:8px;margin-bottom:12px;font-size:12px;color:var(--t2);line-height:1.6">';
-  html += '<div style="margin-bottom:4px">📅 <span style="color:var(--t3)">אימון אחרון:</span> <b style="color:var(--tx)">'+dStr+'</b></div>';
-  html += '<div style="margin-bottom:4px">🏋️ <span style="color:var(--t3)">משקל מקסימלי אחרון:</span> <b style="color:var(--tx)">'+wStr+'</b></div>';
-  html += '<div>🏷 <span style="color:var(--t3)">אזורי גוף מקושרים:</span> <b style="color:var(--tx)">'+mStr+'</b></div>';
-  html += '</div>';
-
-  html += '<div style="font-size:11px;color:var(--t3);margin-bottom:4px">אם הוחלף בתרגיל אחר, בחר ו־"מזג":</div>';
-  if(t.candidates && t.candidates.length) {
-      html += '<div style="display:flex;gap:8px;margin-bottom:12px;">';
-      html += '<select id="cand_'+t.key+'" class="inp" style="flex:2;margin:0;font-size:13px;padding:6px;">';
-      html += '<option value="">-- בחר תרגיל למיזוג --</option>';
-      t.candidates.forEach(function(c){
-          html += '<option value="'+c.ex.id+'">'+c.ex.n+'</option>';
-      });
-      html += '</select>';
-      html += '<button class="btn" onclick="resolveTransition(\''+t.key+'\', \''+t.oldExId+'\')" style="flex:1;padding:6px;font-size:13px;">מזג</button>';
-      html += '</div>';
-  } else {
-      html += '<div style="font-size:12px;color:var(--red);margin-bottom:12px;">לא נמצאו תרגילים מתאימים למיזוג באותו אזור גוף.</div>';
-  }
-  
-  html += '<button onclick="dismissTransition(\''+t.key+'\')" style="width:100%;padding:10px;font-size:13px;background:var(--s2);border:1px solid var(--bd);color:var(--t2);border-radius:8px;cursor:pointer;">מחק התראה (התרגיל פשוט הופסק)</button>';
-  html += '</div>';
-  return html;
-}
 
 function resolveTransition(key, oldId) {
   var sel = document.getElementById('cand_'+key);
@@ -1459,67 +1314,6 @@ function resolveTransition(key, oldId) {
   if($('vP') && $('vP').classList.contains('on')) renderProg();
 }
 
-function renderInvestigateCard(d, key){
-    var exName = getExName(d.exId);
-    var dStr = new Date(d.date).toLocaleDateString('he-IL');
-    // fix5: הצגת "ממשקל... ק"ג" רק בתרגילי ק"ג — בתרגילי גוף/זמן המספרים הם ציון ולא משקל
-    var _cx = allEx().filter(function(e){return e.id===d.exId;})[0];
-    var _isKg = !_cx || _cx.t === 'kg';
-    var wInfo = (_isKg && d.oldW > 0 && d.newW > 0) ? ' ממשקל <b>'+Math.round(d.oldW)+' ק"ג</b> למשקל <b>'+Math.round(d.newW)+' ק"ג</b>' : '';
-    var h = '<div style="background:var(--s1);border:1px solid var(--blue2);border-radius:14px;padding:16px;margin-bottom:10px">';
-    if(d.src === 'user'){
-        h += '<div style="font-size:13px;margin-bottom:12px;color:var(--tx);">ביקשת לחקור שינוי ב־<b style="color:var(--blue2)">'+exName+'</b>'+wInfo+' מתאריך '+dStr+'.</div>';
-    } else {
-        h += '<div style="font-size:13px;margin-bottom:12px;color:var(--tx);">זיהיתי מעבר ב־<b style="color:var(--blue2)">'+exName+'</b>'+wInfo+' בתאריך '+dStr+'.</div>';
-    }
-    
-    if (d.step === 'pending') {
-        h += '<div style="font-size:12px;color:var(--t2);margin-bottom:12px;text-align:center;font-weight:bold;">מה בדיוק קרה שם?</div>';
-        h += '<button onclick="setInvStep(\''+key+'\', \'inplace\')" class="btn" style="width:100%;margin-bottom:8px;padding:10px;font-size:13px;font-weight:bold;background:var(--blue2);color:#fff;border:none;">החלפתי מכשיר / וריאציה (נשארתי בתרגיל)</button>';
-        h += '<button onclick="setInvStep(\''+key+'\', \'trans\')" class="btn" style="width:100%;margin-bottom:8px;padding:10px;font-size:13px;background:var(--s2);color:var(--tx);border:1px solid var(--bd);font-weight:bold;">עברתי לתרגיל אחר</button>';
-        h += '<button onclick="setInvStep(\''+key+'\', \'fixdata\')" class="btn" style="width:100%;margin-bottom:12px;padding:10px;font-size:13px;background:var(--s2);color:var(--tx);border:1px solid var(--bd);font-weight:bold;">המשקל הישן נרשם בטעות (תקן רישום)</button>';
-        h += '<button onclick="cancelInv(\''+key+'\')" class="btn sec" style="width:100%;padding:10px;font-size:12px;border:none;">התעלם — אל תציג שוב</button>';
-    } 
-    else if (d.step === 'inplace') {
-        h += '<div style="font-size:11px;color:var(--t3);margin-bottom:10px">הזן משקלי שיא מקבילים כדי לתקן את ההחלקה בגרף:</div>';
-        h += '<div style="display:flex;gap:10px;margin-bottom:12px">';
-        h += '<div style="flex:1"><div style="font-size:11px;color:var(--t2)">מכשיר ישן</div><input id="oldw_'+key+'" type="number" class="inp" value="'+Math.round(d.oldW)+'" style="margin:0;padding:6px;font-size:14px;"></div>';
-        h += '<div style="flex:1"><div style="font-size:11px;color:var(--t2)">מכשיר חדש</div><input id="neww_'+key+'" type="number" class="inp" value="'+Math.round(d.newW)+'" style="margin:0;padding:6px;font-size:14px;"></div>';
-        h += '</div>';
-        h += '<div style="display:flex;gap:8px">';
-        h += '<button onclick="saveInplace(\''+key+'\')" class="btn" style="flex:2;padding:10px;font-size:13px;background:var(--blue2);color:#fff;border:none;">חשב ושמור</button>';
-        h += '<button onclick="setInvStep(\''+key+'\', \'pending\')" class="btn sec" style="flex:1;padding:10px;font-size:13px;background:var(--s2)">חזור</button>';
-        h += '</div>';
-    }
-    else if (d.step === 'fixdata') {
-        h += '<div style="font-size:11px;color:var(--t3);margin-bottom:10px">תיקון רישום: כל הסטים של התרגיל לפני '+dStr+' שקרובים למשקל השגוי יעודכנו למשקל הנכון.</div>';
-        h += '<div style="display:flex;gap:10px;margin-bottom:12px">';
-        h += '<div style="flex:1"><div style="font-size:11px;color:var(--t2)">נרשם בטעות</div><input id="fixw_'+key+'" type="number" class="inp" value="'+Math.round(d.oldW)+'" style="margin:0;padding:6px;font-size:14px;"></div>';
-        h += '<div style="flex:1"><div style="font-size:11px;color:var(--t2)">המשקל הנכון</div><input id="fixc_'+key+'" type="number" class="inp" value="'+Math.round(d.newW)+'" style="margin:0;padding:6px;font-size:14px;"></div>';
-        h += '</div>';
-        h += '<div style="display:flex;gap:8px">';
-        h += '<button onclick="saveDataFix(\''+key+'\')" class="btn" style="flex:2;padding:10px;font-size:13px;background:var(--blue2);color:#fff;border:none;">תקן היסטוריה</button>';
-        h += '<button onclick="setInvStep(\''+key+'\', \'pending\')" class="btn sec" style="flex:1;padding:10px;font-size:13px;background:var(--s2)">חזור</button>';
-        h += '</div>';
-    }
-    else if (d.step === 'trans') {
-        h += '<div style="font-size:11px;color:var(--t3);margin-bottom:10px">לאיזה תרגיל עברת?</div>';
-        var candidates = allEx().filter(function(e){return !hasInvalidMuscle(e.id);});
-        h += '<select id="cand_'+key+'" class="inp" style="margin-bottom:12px;font-size:13px;padding:6px;">';
-        h += '<option value="">-- בחר תרגיל למיזוג --</option>';
-        candidates.forEach(function(c){
-            h += '<option value="'+c.id+'">'+c.n+'</option>';
-        });
-        h += '</select>';
-        
-        h += '<div style="display:flex;gap:8px">';
-        h += '<button onclick="resolveInvTrans(\''+key+'\')" class="btn" style="flex:2;padding:10px;font-size:13px;">מזג</button>';
-        h += '<button onclick="setInvStep(\''+key+'\', \'pending\')" class="btn sec" style="flex:1;padding:10px;font-size:13px;background:var(--s2)">חזור</button>';
-        h += '</div>';
-    }
-    h += '</div>';
-    return h;
-}
 
 function setInvStep(key, step) {
     var decs = getDecisions();
@@ -1557,56 +1351,6 @@ function saveInplace(key){
     if($('vP') && $('vP').classList.contains('on')) renderProg();
 }
 
-function resolveInvTrans(key){
-    var sel = document.getElementById('cand_'+key);
-    var newId = sel ? sel.value : '';
-    if(!newId) { toast('יש לבחור תרגיל'); return; }
-    
-    var decs = getDecisions();
-    var d = decs[key];
-    var oldId = d.exId;
-    
-    var newEx = allEx().filter(function(e){return e.id===newId;})[0];
-    var oldEx = allEx().filter(function(e){return e.id===oldId;})[0] || {id:oldId, t:'kg', r:'10'}; 
-    var oldMax = 0, newFirst = 0;
-    
-    var sorted = sessions.slice().sort(function(a,b){return a.start-b.start;});
-    sorted.forEach(function(s){
-       var scOld = sessionExScore(s, oldEx);
-       if(scOld > 0 && s.start <= d.date) oldMax = scOld; 
-       
-       var scNew = sessionExScore(s, newEx);
-       if(scNew > 0 && newFirst === 0 && s.start >= d.date) newFirst = scNew; 
-    });
-    
-    if(oldMax === 0 || newFirst === 0) {
-       oldMax = 0; newFirst = 0;
-       sorted.forEach(function(s){
-           var scOld = sessionExScore(s, oldEx);
-           if(scOld > 0) oldMax = scOld;
-           var scNew = sessionExScore(s, newEx);
-           if(scNew > 0 && newFirst === 0) newFirst = scNew;
-       });
-    }
-    
-    // fix5: יחס המרה תקף רק בין תרגילים מאותו סוג — ציון זמן וציון ק"ג אינם ברי-השוואה
-    var _sameType = newEx && oldEx && newEx.t === oldEx.t;
-    var ratio = (_sameType && oldMax > 0 && newFirst > 0) ? (oldMax / newFirst) : 1;
-    
-    var newKey = 'trans_' + oldId;
-    decs[newKey] = {
-        step: 'done',
-        oldId: oldId,
-        newId: newId,
-        ratio: ratio
-    };
-    
-    delete decs[key];
-    saveDecisions(decs);
-    toast('✅ החלפת תרגיל נשמרה בהצלחה');
-    renderAlerts();
-    if($('vP') && $('vP').classList.contains('on')) renderProg();
-}
 
 function cancelInv(key){
     var decs = getDecisions();
@@ -1643,26 +1387,6 @@ function saveDataFix(key){
     if($('vP') && $('vP').classList.contains('on')) renderProg();
 }
 
-function createInvestigateAlert(exId, dateMs, prevW, currW, auto){
-    var decs = getDecisions();
-    decs['inv_' + exId + '_' + dateMs] = {
-        step: 'pending',
-        type: 'investigate',
-        exId: exId,
-        date: dateMs,
-        oldW: prevW || 0,
-        newW: currW || 0,
-        src: auto ? 'auto' : 'user'
-    };
-    saveDecisions(decs);
-    
-    alertsViewMode = 'pending';
-    renderAlerts();
-    
-    if(typeof closeAnalysis === 'function') closeAnalysis();
-    goTo('N');
-    toast('אנא בחר את מהות השינוי למטה');
-}
 
 // ══════════════════════════════════════════════════════
 // STATS, GAUGE & INSIGHTS
@@ -2359,7 +2083,6 @@ function showPointAnalysis(hit){
             
             var pW = hit.prev.orig;
             var cW = hit.orig;
-            html += '<button onclick="closeAnalysis(); createInvestigateAlert(\''+hit.exId+'\', '+hit.d+', '+pW+', '+cW+')" style="margin-top:16px;width:100%;padding:10px;border-radius:8px;background:var(--s2);border:1px dashed var(--blue2);color:var(--blue2);cursor:pointer;font-size:12px;font-weight:bold;">🔍 חקור סיבת שינוי</button>';
 
         } else {
             html += '<div style="font-size:14px;margin-bottom:6px;text-align:center;color:var(--tx);"><b>'+exName+'</b></div>';
@@ -2402,7 +2125,6 @@ function showPointAnalysis(hit){
                 html += '<div style="font-weight:bold;font-size:13px;color:var(--tx);">'+getExName(ex.id)+'</div>';
                 
                 if(currW > 0 && prevW > 0) {
-                    html += '<button onclick="closeAnalysis(); createInvestigateAlert(\''+ex.id+'\', '+hit.d+', '+prevW+', '+currW+')" style="background:var(--blued);border:1px solid var(--blue2);color:var(--blue2);cursor:pointer;font-size:10px;border-radius:6px;padding:2px 6px;" title="חקור סיבת שינוי בתרגיל זה">🔍 חקור</button>';
                 }
                 
                 html += '</div>';
@@ -2990,6 +2712,7 @@ function doChgEx(){
 
   // fix4: שמירת מצב לפני עריכה לצורך זיהוי אוטומטי של החלפה/וריאציה
   var _oldName = ex.n || '';
+  var _oldType = ex.t || 'kg';
   var _refW = ex.w || 0;
   var _hadHistory = false;
   try{
@@ -2998,6 +2721,12 @@ function doChgEx(){
     if(_h.length){ _hadHistory = true; _refW = _h[_h.length-1].mw || 0; }
   }catch(e){}
 
+  // fix12: רישום השם הקודם עם תאריך — כדי שתמיד יהיה ניתן לדעת מה התרגיל היה
+  if(_oldName && _oldName.trim() !== newName){
+    if(!ex.nameHist) ex.nameHist = [];
+    ex.nameHist.push({until: Date.now(), n: _oldName});
+    if(ex.nameHist.length > 20) ex.nameHist = ex.nameHist.slice(-20);
+  }
   ex.n = newName;
   // fix10: שינוי סוג נרשם עם תאריך — אימוני העבר ממשיכים להיות מחושבים בסוג הישן
   if(_hadHistory && ex.t !== newType) setExTypeFrom(ex, ex.t, newType, Date.now());
@@ -3057,7 +2786,8 @@ function doChgEx(){
   // fix7: שינוי שם תרגיל עם היסטוריה → התראת בחירת סוג (חופשי/פולי/מכונה) לקביעת מקדם משקל אמיתי
   try{
     var nameChanged = _oldName.trim() !== newName;
-    if(_hadHistory && nameChanged){
+    var typeChanged = _oldType !== newType; // fix12: שינוי סוג לבדו מפעיל את ההתראה
+    if(_hadHistory && (nameChanged || typeChanged)){
       var _decs = getDecisions();
       var _pending = Object.keys(_decs).some(function(k){
         return k.indexOf('coef_'+chgExId+'_')===0 && _decs[k].step!=='done';
@@ -3068,7 +2798,6 @@ function doChgEx(){
           oldName: _oldName, newName: newName, date: Date.now()
         };
         saveDecisions(_decs);
-        alertsViewMode='pending';
         renderAlerts();
         goTo('N');
         toast('בחר את סוג התרגיל החדש למטה');
