@@ -415,9 +415,11 @@ canvas{width:100%;border-radius:var(--r);background:var(--s1);display:block}
     <div class="chips" id="chips"></div>
     <canvas id="pgc" height="220"></canvas>
     <div id="prbox" style="margin-top:10px"></div>
-    <div style="font-size:10px;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.8px;margin:18px 0 8px">נפח שבועי (ק"ג בפועל)</div>
-    <canvas id="volc" height="160"></canvas>
-    <div style="font-size:10px;color:var(--t3);margin-top:6px;text-align:center">משקל × חזרות · לפי שבוע</div>
+    <div style="font-size:10px;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.8px;margin:18px 0 8px">נפח אימון A (ק"ג בפועל)</div>
+    <canvas id="volcA" height="160"></canvas>
+    <div style="font-size:10px;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.8px;margin:18px 0 8px">נפח אימון B (ק"ג בפועל)</div>
+    <canvas id="volcB" height="160"></canvas>
+    <div style="font-size:10px;color:var(--t3);margin-top:6px;text-align:center">משקל × חזרות · החלקה ימינה = אחורה בזמן</div>
 
     <div style="font-size:10px;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.8px;margin:20px 0 8px">עקביות 30 יום</div>
     <div id="gaugesvg" onclick="openGaugeDetail()" style="width:100%;max-width:240px;margin:0 auto;display:block"></div>
@@ -1404,15 +1406,19 @@ function weekStartTs(ts){
   d.setDate(d.getDate()-d.getDay()); // getDay: ראשון=0
   return d.getTime();
 }
+// fix13: השבוע הנוכחי מתחיל בזכות מלאה (100%) ויורד רק כשכבר לא ניתן
+// להשלים את היעד בימים שנותרו — לא נכשלים מראש ביום ראשון בבוקר.
+function daysLeftInWeek(){ return 7-new Date().getDay(); } // כולל היום
 function calcRolling(){
   var perWeek=getMonthlyTarget()/4; 
   var msWeek=7*24*3600*1000, ws0=weekStartTs(Date.now());
-  var done=0, expected=0;
+  var done=0, expected=0, dLeft=daysLeftInWeek();
   for(var w=0;w<4;w++){
     var wStart=ws0-w*msWeek;
     var wEnd=wStart+msWeek;
     var cnt=sessions.filter(function(s){return s.start>=wStart&&s.start<wEnd;}).length;
-    done+=Math.min(cnt,perWeek); 
+    // שבוע נוכחי: הפוטנציאל עדיין נספר · שבועות שהסתיימו: התוצאה בפועל
+    done+=(w===0) ? Math.min(perWeek, cnt+dLeft) : Math.min(cnt,perWeek);
     expected+=perWeek;
   }
   var pct=expected>0 ? Math.round(done/expected*100) : 0;
@@ -1917,7 +1923,9 @@ function buildGaugeDetail(rolling){
     var wStart = ws0-w*msWeek;
     var wEnd = wStart+msWeek;
     var cnt = sessions.filter(function(s){return s.start>=wStart&&s.start<wEnd;}).length;
-    weeks.push({idx:w, start:wStart, end:wEnd, count:cnt, missed:Math.max(0,perWeek-cnt)});
+    // fix13: בשבוע הנוכחי החמצה נספרת רק על מה שכבר בלתי אפשרי להשלים
+    var miss = (w===0) ? Math.max(0, perWeek-(cnt+daysLeftInWeek())) : Math.max(0,perWeek-cnt);
+    weeks.push({idx:w, start:wStart, end:wEnd, count:cnt, missed:miss, live:(w===0)});
   }
   // השבוע החלש ביותר
   var weakestIdx = 0, weakestMissed = -1;
@@ -1930,7 +1938,7 @@ function buildGaugeDetail(rolling){
   var totalMissed = weeks.reduce(function(a,w){return a+w.missed;},0);
   var totalDone = weeks.reduce(function(a,w){return a+w.count;},0);
 
-  var html = _explain('המדד מחשב לפי יעד שבועי של '+perWeek.toFixed(1)+' אימונים ('+target+' לחודש ÷ 4). כל אימון מעבר ליעד השבועי לא נספר ביתרון. השבועות נספרים מיום ראשון עד שבת, כולל השבוע הנוכחי (חלקי).');
+  var html = _explain('המדד מחשב לפי יעד שבועי של '+perWeek.toFixed(1)+' אימונים ('+target+' לחודש ÷ 4). השבועות נספרים מיום ראשון עד שבת. השבוע הנוכחי מתחיל ב-100% ויורד רק אם כבר לא נותרו מספיק ימים להשלים את היעד.');
   
   html += _section('סיכום כללי');
   html += _row('אימונים שבוצעו', totalDone+' / '+(perWeek*4)+' צפויים');
@@ -1941,7 +1949,7 @@ function buildGaugeDetail(rolling){
   
   html += _section('פירוט שבועי');
   weeks.forEach(function(w,i){
-    var label = i===0?'השבוע':i===1?'שבוע שעבר':'לפני '+(i+1)+' שבועות';
+    var label = i===0?('השבוע · נותרו '+daysLeftInWeek()+' ימים'):i===1?'שבוע שעבר':'לפני '+(i+1)+' שבועות';
     var pct = Math.min(100, Math.round(w.count/perWeek*100));
     var barColor = pct>=100 ? 'var(--ok)' : pct>=75 ? '#eab308' : 'var(--red)';
     var isWeakest = i===weakestIdx && w.missed>0;
@@ -2375,8 +2383,12 @@ function drawChart(){
     '<div style="font-size:26px;font-weight:900;color:#fbbf24">🏆 '+mxP.toFixed(1)+'%</div></div>';
 }
 
-function drawVolChart(){
-  var canvas=$('volc'), ctx=canvas.getContext('2d');
+// fix13: גרף נפח נפרד לכל סוג אימון (A / B) — כל אחד עם ציר וגלילה משלו
+function drawVolChart(wkt){
+  if(!wkt){ drawVolChart('A'); drawVolChart('B'); return; }
+  var canvas=$('volc'+wkt); if(!canvas) return;
+  var ctx=canvas.getContext('2d');
+  var list=sessions.filter(function(s){ return (s.wkt||'')===wkt; });
   var dpr=window.devicePixelRatio||1;
   canvas.width=canvas.offsetWidth*dpr; canvas.height=160*dpr;
   ctx.scale(dpr,dpr);
@@ -2385,9 +2397,9 @@ function drawVolChart(){
   ctx.fillStyle=getComputedStyle(document.documentElement).getPropertyValue('--s1').trim()||'#111';
   ctx.fillRect(0,0,CW,CH);
 
-  if(!sessions.length){
+  if(!list.length){
     ctx.fillStyle='#555'; ctx.font='13px Heebo'; ctx.textAlign='center';
-    ctx.fillText('אין נתונים',CW/2,CH/2); return;
+    ctx.fillText('אין אימוני '+wkt,CW/2,CH/2); return;
   }
 
   // נרמול יחידות: מכשיר ישן מתורגם ל"שפת" המכשיר הנוכחי לפי היחסים שכבר הוזנו
@@ -2451,32 +2463,29 @@ function drawVolChart(){
 
   // מטמון נפחים + שיאים — מחושב מחדש בכל ציור רגיל, נשמר רק בזמן גרירה
   var C=drawVolChart;
-  if(!C._vols || C._volsN!==sessions.length || !C._keep){
+  var kV='_vols'+wkt, kN='_volsN'+wkt, kP='_peak'+wkt;
+  if(!C[kV] || C[kN]!==list.length || !C._keep){
     var VM=buildVolMults();
-    C._vols=sessions.map(function(s){ return sessVol(s, VM); });
-    C._volsN=sessions.length;
-    C._pAi=-1; C._pBi=-1;
-    var pA=-1,pB=-1;
-    sessions.forEach(function(s,i){
-      var v=C._vols[i], t=s.wkt||'';
-      if(t==='A'&&v>pA){pA=v;C._pAi=i;}
-      if(t==='B'&&v>pB){pB=v;C._pBi=i;}
-    });
+    C[kV]=list.map(function(s){ return sessVol(s, VM); });
+    C[kN]=list.length;
+    var pk=-1; C[kP]=-1;
+    C[kV].forEach(function(v,i){ if(v>pk){ pk=v; C[kP]=i; } });
   }
+  var vols=C[kV], peakIdx=C[kP];
 
   // חלון גלילה רציף: 12 אימונים, גרירה ימינה = אחורה בזמן
-  var WIN=12;
-  var maxOff=Math.max(0,sessions.length-WIN);
-  if(typeof window._volOff!=='number') window._volOff=0;
-  window._volOff=Math.max(0,Math.min(maxOff,window._volOff));
-  var off=window._volOff;
-  var firstF=sessions.length-WIN-off; // אינדקס ראשון בחלון (שברי בזמן גרירה)
+  var WIN=12, kO='_volOff'+wkt;
+  var maxOff=Math.max(0,list.length-WIN);
+  if(typeof window[kO]!=='number') window[kO]=0;
+  window[kO]=Math.max(0,Math.min(maxOff,window[kO]));
+  var off=window[kO];
+  var firstF=list.length-WIN-off; // אינדקס ראשון בחלון (שברי בזמן גרירה)
 
   // אינדקסים גלויים (כולל ברים חלקיים בקצוות)
   var j0=Math.max(0,Math.floor(firstF));
-  var j1=Math.min(sessions.length-1,Math.ceil(firstF+WIN));
+  var j1=Math.min(list.length-1,Math.ceil(firstF+WIN));
   var maxV=1;
-  for(var j=j0;j<=j1;j++){ if(C._vols[j]>maxV) maxV=C._vols[j]; }
+  for(var j=j0;j<=j1;j++){ if(vols[j]>maxV) maxV=vols[j]; }
 
   // סקאלה "עגולה" לציר Y — 5-6 קווים
   var rough=maxV/5;
@@ -2506,13 +2515,13 @@ function drawVolChart(){
   ctx.beginPath(); ctx.rect(pad.l,0,gW,CH); ctx.clip();
 
   for(var j=j0;j<=j1;j++){
-    var s=sessions[j];
-    var v=C._vols[j];
+    var s=list[j];
+    var v=vols[j];
     var bh=Math.max(3,(v/topV)*gH);
     var x=pad.l+gap+(barW+gap)*(j-firstF);
     var y=pad.t+gH-bh;
 
-    var isPeak=(j===C._pAi||j===C._pBi);
+    var isPeak=(j===peakIdx);
     var grad=ctx.createLinearGradient(0,y,0,y+bh);
     if(isPeak){
       grad.addColorStop(0,'#f54b4b');
@@ -2527,7 +2536,7 @@ function drawVolChart(){
     ctx.fill();
 
     // אות סוג אימון (A/B) + עלה אם דילואד — בתוך הבר בראש
-    var lbl = (s.wkt||'') + (s.deload ? '🌿' : '');
+    var lbl = s.deload ? '🌿' : '';
     if(lbl){
       ctx.font='bold 8px Heebo';
       ctx.textAlign='center';
@@ -2551,10 +2560,10 @@ function drawVolChart(){
 
   // גרירה רציפה: הגרף זז עם האצבע, ימינה = אחורה בזמן
   if(!canvas._hasSwipe){
-    var sx=0, sy=0, so=0, drag=null;
+    var sx=0, sy=0, so=0, drag=null, W=wkt;
     canvas.addEventListener('touchstart',function(e){
       sx=e.touches[0].clientX; sy=e.touches[0].clientY;
-      so=window._volOff||0; drag=null;
+      so=window['_volOff'+W]||0; drag=null;
     },{passive:true});
     canvas.addEventListener('touchmove',function(e){
       var dx=e.touches[0].clientX-sx, dy=e.touches[0].clientY-sy;
@@ -2566,13 +2575,14 @@ function drawVolChart(){
       e.preventDefault();
       drawVolChart._keep=true;
       var unit=canvas._volUnit||30;
-      var mo=Math.max(0,sessions.length-12);
-      window._volOff=Math.max(0,Math.min(mo,so+dx/unit));
-      drawVolChart();
+      var cnt=sessions.filter(function(s){ return (s.wkt||'')===W; }).length;
+      var mo=Math.max(0,cnt-12);
+      window['_volOff'+W]=Math.max(0,Math.min(mo,so+dx/unit));
+      drawVolChart(W);
     },{passive:false});
     canvas.addEventListener('touchend',function(){
       drawVolChart._keep=false;
-      if(drag){ window._volOff=Math.round(window._volOff||0); drawVolChart(); }
+      if(drag){ window['_volOff'+W]=Math.round(window['_volOff'+W]||0); drawVolChart(W); }
       drag=null;
     },{passive:true});
     canvas._hasSwipe=true;
