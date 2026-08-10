@@ -175,6 +175,48 @@ canvas{width:100%;border-radius:var(--r);background:var(--s1);display:block}
 <body>
 
 <!-- ONBOARDING -->
+<div class="ovl" id="cfmOvl" style="display:none;align-items:center;z-index:720">
+  <div style="background:var(--s1);border:1px solid var(--bd);border-radius:18px;padding:24px;max-width:300px;width:82%;text-align:center">
+    <div id="cfmTxt" style="font-size:15px;font-weight:700;color:var(--tx);margin-bottom:18px;line-height:1.5"></div>
+    <div style="display:flex;gap:10px">
+      <button class="btn" style="background:var(--s2);color:var(--tx);border:1px solid var(--bd)" onclick="cfmClose(false)">ביטול</button>
+      <button class="btn" id="cfmOk" onclick="cfmClose(true)">אישור</button>
+    </div>
+  </div>
+</div>
+
+<div class="ovl" id="angOvl" style="display:none;align-items:center;z-index:720">
+  <div style="background:var(--s1);border:1px solid var(--bd);border-radius:18px;padding:22px;max-width:300px;width:82%;text-align:center">
+    <div style="font-size:16px;font-weight:800;color:var(--tx);margin-bottom:4px">זווית המכונה</div>
+    <div style="font-size:11px;color:var(--t3);margin-bottom:14px">ביחס לרצפה, במעלות (1–90)</div>
+    <input class="inp" id="angInp" type="number" inputmode="numeric" min="1" max="90" placeholder="45" style="text-align:center;font-size:20px;font-weight:800;margin-bottom:8px" oninput="angPreview()"/>
+    <div id="angOut" style="font-size:12px;color:var(--acc2);font-weight:700;margin-bottom:16px;min-height:16px"></div>
+    <div style="display:flex;gap:10px">
+      <button class="btn" style="background:var(--s2);color:var(--tx);border:1px solid var(--bd)" onclick="closeOvl('angOvl')">ביטול</button>
+      <button class="btn" onclick="angConfirm()">אישור</button>
+    </div>
+  </div>
+</div>
+
+<div class="ovl" id="dlOvl" style="display:none;align-items:center;z-index:700">
+  <div style="background:var(--s1);border:1px solid var(--bd);border-radius:18px;padding:22px;max-width:320px;width:84%;text-align:center">
+    <div style="font-size:17px;font-weight:800;color:var(--tx);margin-bottom:4px">סימון שבוע דילואד</div>
+    <div style="font-size:11px;color:var(--t3);margin-bottom:14px">המונה יתחיל לספור מהשבוע שאחריו</div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:18px">
+      <button onclick="dlShift(-1)" style="width:34px;height:34px;flex:none;border-radius:10px;background:var(--s2);border:1px solid var(--bd);color:var(--tx);cursor:pointer;font-size:16px">‹</button>
+      <div style="flex:1">
+        <div id="dlRange" style="font-size:15px;font-weight:800;color:var(--acc2)"></div>
+        <div id="dlWhich" style="font-size:10px;color:var(--t3);margin-top:2px"></div>
+      </div>
+      <button id="dlFwd" onclick="dlShift(1)" style="width:34px;height:34px;flex:none;border-radius:10px;background:var(--s2);border:1px solid var(--bd);color:var(--tx);cursor:pointer;font-size:16px">›</button>
+    </div>
+    <div style="display:flex;gap:10px">
+      <button class="btn" style="background:var(--s2);color:var(--tx);border:1px solid var(--bd)" onclick="closeOvl('dlOvl')">ביטול</button>
+      <button class="btn" onclick="dlConfirm()">סמן כדילואד</button>
+    </div>
+  </div>
+</div>
+
 <div class="ovl" id="exitOvl" style="display:none;align-items:center;z-index:700">
   <div style="background:var(--s1);border:1px solid var(--bd);border-radius:18px;padding:24px;max-width:280px;width:78%;text-align:center">
     <div style="font-size:17px;font-weight:800;color:var(--tx);margin-bottom:18px">האם ברצונך לצאת?</div>
@@ -1161,23 +1203,22 @@ function setExCoef(key, coef){
 }
 
 function setExCoefCustom(key){
-    var a=prompt('זווית המכונה ביחס לרצפה (מעלות, 1-90):');
-    if(a===null) return;
-    var deg=parseFloat(a);
-    if(isNaN(deg)||deg<=0||deg>90){ toast('זווית לא תקינה'); return; }
-    var coef=Math.round(Math.sin(deg*Math.PI/180)*100)/100;
-    setExCoef(key, coef);
+    _angKey = key;
+    if($('angInp')){ $('angInp').value=''; }
+    if($('angOut')){ $('angOut').textContent=''; }
+    openOvl('angOvl');
 }
 
 
 function deleteAlertPermanent(key){
-    if(!confirm("למחוק התראה זו מההיסטוריה לצמיתות?")) return;
-    var decs = getDecisions();
-    delete decs[key];
-    saveDecisions(decs);
-    var b = getBridges();
-    if(b[key]) { delete b[key]; saveBridges(b); }
-    renderAlerts();
+    askConfirm('למחוק התראה זו מההיסטוריה לצמיתות?', function(){
+      var decs = getDecisions();
+      delete decs[key];
+      saveDecisions(decs);
+      var b = getBridges();
+      if(b[key]) { delete b[key]; saveBridges(b); }
+      renderAlerts();
+    }, 'מחק');
 }
 
 function dismissTransition(key) {
@@ -1233,13 +1274,14 @@ function renderMappingCard(t){
 }
 
 function ignoreMapping(id){
-    if(!confirm("תרגיל זה יסומן כמחוק ולא יופיע יותר בשום גרף או התראה. האם להמשיך?")) return;
-    var mm = getMuscleMap();
-    mm[id] = { muscles: ['__DELETED__'] };
-    saveMuscleMap(mm);
-    toast('התרגיל נמחק מההיסטוריה הפעילה');
-    renderAlerts();
-    if($('vP')&&$('vP').classList.contains('on')) renderProg();
+    askConfirm('התרגיל יסומן כמחוק ולא יופיע יותר בשום גרף או התראה. להמשיך?', function(){
+      var mm = getMuscleMap();
+      mm[id] = { muscles: ['__DELETED__'] };
+      saveMuscleMap(mm);
+      toast('התרגיל נמחק מההיסטוריה הפעילה');
+      renderAlerts();
+      if($('vP')&&$('vP').classList.contains('on')) renderProg();
+    }, 'מחק');
 }
 
 function toggleMapMuscle(btn,muscle,pk,safeId){
@@ -1491,9 +1533,54 @@ function renderStatsBar(){
 }
 // fix14: איפוס ידני של מונה הדילואד — מסמן את השבוע הנוכחי כשבוע דילואד.
 // לא נוגע באף אימון; הספירה מתחילה מחדש ביום ראשון שאחרי סוף השבוע הזה.
-function resetDeload(){
-  if(!confirm('לסמן את השבוע הנוכחי כשבוע דילואד ולאפס את המונה?')) return;
-  sv('deloadReset', Date.now());
+// fix15: חלונות אישור וקלט מעוצבים במקום confirm/prompt של הדפדפן
+var _cfmCb = null;
+function askConfirm(msg, onYes, okLabel){
+  _cfmCb = onYes;
+  if($('cfmTxt')) $('cfmTxt').textContent = msg;
+  if($('cfmOk')) $('cfmOk').textContent = okLabel || 'אישור';
+  openOvl('cfmOvl');
+}
+function cfmClose(ok){
+  closeOvl('cfmOvl');
+  var cb=_cfmCb; _cfmCb=null;
+  if(ok && cb) cb();
+}
+
+var _angKey = null;
+function angPreview(){
+  var deg=parseFloat($('angInp').value);
+  var out=$('angOut'); if(!out) return;
+  if(isNaN(deg)||deg<=0||deg>90){ out.textContent=''; return; }
+  out.textContent = 'מקדם: ×'+(Math.round(Math.sin(deg*Math.PI/180)*100)/100);
+}
+function angConfirm(){
+  var deg=parseFloat($('angInp').value);
+  if(isNaN(deg)||deg<=0||deg>90){ toast('זווית לא תקינה'); return; }
+  var coef=Math.round(Math.sin(deg*Math.PI/180)*100)/100;
+  closeOvl('angOvl');
+  setExCoef(_angKey, coef);
+}
+
+var _dlBack = 0; // כמה שבועות אחורה מהשבוע הנוכחי
+function resetDeload(){ _dlBack = 0; dlRender(); openOvl('dlOvl'); }
+function dlShift(dir){
+  // '‹' מזיז שבוע אחורה בזמן · '›' חוזר קדימה, לא מעבר לשבוע הנוכחי
+  _dlBack = Math.max(0, Math.min(52, _dlBack - dir));
+  dlRender();
+}
+function dlRender(){
+  var msWeek=7*24*3600*1000;
+  var ws = weekStartTs(Date.now()) - _dlBack*msWeek;
+  var we = ws + msWeek - 24*3600*1000;
+  if($('dlRange')) $('dlRange').textContent = _fmtDate(ws)+' – '+_fmtDate(we);
+  if($('dlWhich')) $('dlWhich').textContent = _dlBack===0 ? 'השבוע' : (_dlBack===1 ? 'שבוע שעבר' : 'לפני '+_dlBack+' שבועות');
+  var f=$('dlFwd'); if(f){ f.style.opacity = _dlBack===0 ? '.3' : '1'; f.disabled = _dlBack===0; }
+}
+function dlConfirm(){
+  var msWeek=7*24*3600*1000;
+  sv('deloadReset', weekStartTs(Date.now()) - _dlBack*msWeek + 12*3600*1000);
+  closeOvl('dlOvl');
   try{ renderStatsBar(); }catch(e){}
   toast('השבוע סומן כדילואד 🌿');
 }
