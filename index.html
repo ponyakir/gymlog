@@ -1437,7 +1437,13 @@ function calcDeloadStatus(){
   for(var i=sorted.length-1;i>=0;i--){ if(sorted[i].deload){ anchor=sorted[i].start; break; } }
   var fromFirst = anchor===null;
   if(anchor===null) anchor=sorted[0].start;
-  var weeks=(Date.now()-anchor)/(7*24*3600*1000);
+  // fix14: איפוס ידני — הדילואד תופס שבוע קלנדרי שלם, והספירה מתחילה בראשון שאחריו
+  var manual = ld('deloadReset', 0);
+  if(manual){
+    var mEnd = weekStartTs(manual) + 7*24*3600*1000; // מוצאי שבת של אותו שבוע
+    if(mEnd > anchor){ anchor = mEnd; fromFirst = false; }
+  }
+  var weeks=Math.max(0,(Date.now()-anchor)/(7*24*3600*1000));
   var color, light, label;
   if(weeks<6){ color='#16a34a'; light='🟢'; label='בטווח'; }
   else if(weeks<9){ color='#eab308'; light='🟡'; label='מומלץ דילואד'; }
@@ -1470,14 +1476,27 @@ function renderStatsBar(){
            <div style="position:absolute;top:-2px;left:calc(${s.posPct}% - 1px);width:2px;height:10px;background:#fff;box-shadow:0 0 2px #000;border-radius:1px"></div>
          </div>`
       : '';
+    var rstBtn = s.deloadBar
+      ? `<button onclick="resetDeload()" style="margin-top:7px;width:100%;padding:5px 2px;border-radius:8px;background:var(--s2);border:1px solid var(--bd);color:var(--t2);cursor:pointer;font-size:10px;font-weight:700">🌿 אפס דילואד</button>`
+      : '';
     return `<div style="flex:1;min-width:60px;background:var(--s1);border:1px solid ${s.deloadBar?s.color:'var(--bd)'};border-radius:12px;padding:10px 6px;text-align:center">
       <div style="font-size:18px">${s.icon}</div>
       <div style="font-size:16px;font-weight:900;color:${s.color};margin:2px 0">${s.val}</div>
       <div style="font-size:10px;color:var(--t3)">${s.label}</div>
       ${bar}
+      ${rstBtn}
     </div>`;
   }).join('')+'</div>';
 }
+// fix14: איפוס ידני של מונה הדילואד — מסמן את השבוע הנוכחי כשבוע דילואד.
+// לא נוגע באף אימון; הספירה מתחילה מחדש ביום ראשון שאחרי סוף השבוע הזה.
+function resetDeload(){
+  if(!confirm('לסמן את השבוע הנוכחי כשבוע דילואד ולאפס את המונה?')) return;
+  sv('deloadReset', Date.now());
+  try{ renderStatsBar(); }catch(e){}
+  toast('השבוע סומן כדילואד 🌿');
+}
+
 function drawGauge(){
   var el=$('gaugesvg'); if(!el) return;
   var rolling=calcRolling();
