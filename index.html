@@ -175,6 +175,41 @@ canvas{width:100%;border-radius:var(--r);background:var(--s1);display:block}
 <body>
 
 <!-- ONBOARDING -->
+<div class="ovl" id="ssOvl" style="display:none;align-items:center;z-index:720">
+  <div style="background:var(--s1);border:1px solid rgba(220,80,80,.45);border-radius:18px;padding:22px;max-width:340px;width:88%;max-height:86vh;overflow-y:auto">
+    <div style="font-size:17px;font-weight:800;color:var(--tx);text-align:center">🔗 הוסף סופרסט</div>
+    <div id="ssHost" style="font-size:11px;color:var(--t3);text-align:center;margin-bottom:14px"></div>
+    <input class="inp" id="ssN" placeholder="שם התרגיל"/>
+    <select class="inp" id="ssT">
+      <option value="kg">🏋️ משקל + חזרות</option>
+      <option value="body">🏃 משקל גוף + חזרות</option>
+      <option value="time">⏱ זמן (שניות)</option>
+    </select>
+    <div class="r2">
+      <input class="inp" id="ssSets" type="number" placeholder="סטים (3)"/>
+      <input class="inp" id="ssReps" placeholder="חזרות (12)"/>
+      <input class="inp" id="ssKg" type="number" placeholder="ק״ג"/>
+    </div>
+    <label class="lbl">אזור גוף</label>
+    <div id="ssMuscle" class="mchips">
+      <div class="mchip" onclick="this.classList.toggle('on')">חזה</div>
+      <div class="mchip" onclick="this.classList.toggle('on')">גב</div>
+      <div class="mchip" onclick="this.classList.toggle('on')">כתפיים</div>
+      <div class="mchip" onclick="this.classList.toggle('on')">יד אחורית</div>
+      <div class="mchip" onclick="this.classList.toggle('on')">יד קדמית</div>
+      <div class="mchip" onclick="this.classList.toggle('on')">בטן</div>
+      <div class="mchip" onclick="this.classList.toggle('on')">רגל קדמית</div>
+      <div class="mchip" onclick="this.classList.toggle('on')">רגל אחורית</div>
+      <div class="mchip" onclick="this.classList.toggle('on')">תאומים</div>
+    </div>
+    <div style="font-size:10px;color:var(--t3);margin:10px 0 14px;text-align:center">ללא מנוחה בין התרגילים · הטיימר יופעל בסיום הסט הצמוד</div>
+    <div style="display:flex;gap:10px">
+      <button class="btn" style="background:var(--s2);color:var(--tx);border:1px solid var(--bd)" onclick="closeOvl('ssOvl')">ביטול</button>
+      <button class="btn" onclick="doAddSuper()">הוסף 🔗</button>
+    </div>
+  </div>
+</div>
+
 <div class="ovl" id="cfmOvl" style="display:none;align-items:center;z-index:720">
   <div style="background:var(--s1);border:1px solid var(--bd);border-radius:18px;padding:24px;max-width:300px;width:82%;text-align:center">
     <div id="cfmTxt" style="font-size:15px;font-weight:700;color:var(--tx);margin-bottom:18px;line-height:1.5"></div>
@@ -326,6 +361,7 @@ canvas{width:100%;border-radius:var(--r);background:var(--s1);display:block}
     </div>
 
     <div class="err" id="chgErr"></div>
+    <button class="btn" id="chgSsBtn" onclick="openSupersetFromEdit()" style="margin-bottom:18px;background:rgba(200,70,70,.14);border:1px solid rgba(200,70,70,.4);color:#e08a8a">➕ הוסף סופרסט</button>
     <button class="btn" onclick="doChgEx()">שמור שינויים</button>
     <button class="btn red" onclick="doDelEx()" style="margin-top:8px">🗑 מחק תרגיל</button>
     <button class="btn sec" onclick="closeOvl('chgOvl')">ביטול</button>
@@ -407,13 +443,13 @@ canvas{width:100%;border-radius:var(--r);background:var(--s1);display:block}
         <div style="font-size:30px;font-weight:900;letter-spacing:-.8px;color:var(--tx)" id="homeName"></div>
         <div id="homeLastInfo" style="font-size:12px;color:var(--t2);margin-top:6px;letter-spacing:.2px"></div>
       </div>
-      <div onclick="showStartScreen()" style="background:var(--blue);border-radius:16px;padding:28px 24px;cursor:pointer;margin-bottom:10px;position:relative;overflow:hidden;border:1px solid var(--blue2)">
+      <div onclick="tapFlash(this,showStartScreen)" style="background:var(--blue);border-radius:16px;padding:28px 24px;cursor:pointer;margin-bottom:10px;position:relative;overflow:hidden;border:1px solid var(--blue2)">
         <div style="position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(201,168,76,.6),transparent)"></div>
         <div style="font-size:10px;font-weight:700;color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:1.2px;margin-bottom:10px">מוכן להתחיל?</div>
         <div style="font-size:24px;font-weight:900;color:#fff;letter-spacing:-.5px">התחל אימון</div>
         <div style="position:absolute;left:24px;top:50%;transform:translateY(-50%);font-size:28px;color:rgba(201,168,76,.8)">›</div>
       </div>
-      <div onclick="goTo('E')" style="background:var(--s1);border:1px solid var(--bd);border-radius:16px;padding:24px;cursor:pointer;display:flex;align-items:center;justify-content:space-between">
+      <div onclick="tapFlash(this,function(){goTo('E')})" style="background:var(--s1);border:1px solid var(--bd);border-radius:16px;padding:24px;cursor:pointer;display:flex;align-items:center;justify-content:space-between">
         <div>
           <div style="font-size:11px;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">ניהול</div>
           <div style="font-size:20px;font-weight:900;letter-spacing:-.3px">עריכת תוכניות</div>
@@ -653,6 +689,19 @@ function saveEx(){
 // HELPERS
 // ══════════════════════════════════════════════════════
 const $ = id => document.getElementById(id);
+// fix20: משוב לחיצה בולט — הבהקה קצרה על האלמנט לפני הפעולה
+function tapFlash(el, fn){
+  if(!el){ if(fn) fn(); return; }
+  var prevFilter = el.style.filter, prevTrans = el.style.transform, prevTr = el.style.transition;
+  el.style.transition = 'filter .09s ease, transform .09s ease';
+  el.style.filter = 'brightness(2.6)';
+  el.style.transform = 'scale(.975)';
+  setTimeout(function(){
+    el.style.filter = prevFilter; el.style.transform = prevTrans;
+    setTimeout(function(){ el.style.transition = prevTr; if(fn) fn(); }, 90);
+  }, 150);
+}
+
 function openOvl(id){ var el=$(id); if(el) el.style.display='flex'; }
 function closeOvl(id){ var el=$(id); if(el) el.style.display='none'; if(id==='chgOvl'){ chgExId=null; if($('chgOvl')&&$('chgOvl').dataset) delete $('chgOvl').dataset.exid; } }
 function toast(msg){
@@ -2800,6 +2849,14 @@ function openChgEx(id){
   });
 
   chgErr.textContent = '';
+  // fix18: כפתור הסופרסט מוצג רק כשרלוונטי
+  var _ssB = $('chgSsBtn');
+  if(_ssB){
+    var _arr = (WKT[curEditWkt] && WKT[curEditWkt].ex) || [];
+    var _i = _arr.findIndex(function(e){ return e.id===id; });
+    var _already = _i>=0 && _arr[_i+1] && _arr[_i+1].ss;
+    _ssB.style.display = (ex.ss || _already) ? 'none' : 'block';
+  }
   openOvl('chgOvl');
 }
 
@@ -3247,13 +3304,21 @@ function renderWkt(){
         ex.variants.map(function(v){ return vbtn(v, v, v===actVar); }).join('')+
         '</div>';
     }
+      // fix17: כרטיס סופרסט — צמוד לתרגיל שמעליו, מסומן באדום חלש, ללא מנוחה
+      var _isSS = !!ex.ss;
+      if(_isSS){
+        card.style.cssText += ';background:rgba(200,70,70,.07);border-color:rgba(200,70,70,.32);margin-top:-4px;margin-inline-start:12px';
+      }
+      var _restCell = _isSS
+        ? '<div class="rl" style="color:#e08a8a">🔗 ללא מנוחה</div>'
+        : '<div class="rl" id="rl_'+ex.id+'">'+
+            '⏱ <span id="rt_'+ex.id+'">'+fmtR(ex.rest)+'</span>'+
+            ' <button class="redit" onclick="editR(\''+ex.id+'\')">ערוך</button>'+
+          '</div>';
       card.innerHTML =
       '<div class="eh">'+
-        '<div class="einfo"><div class="en">'+ex.n+'</div><div class="ehint">'+hint+'</div>'+preDeloadHint+'</div>'+
-        '<div class="rl" id="rl_'+ex.id+'">'+
-          '⏱ <span id="rt_'+ex.id+'">'+fmtR(ex.rest)+'</span>'+
-          ' <button class="redit" onclick="editR(\''+ex.id+'\')">ערוך</button>'+
-        '</div>'+
+        '<div class="einfo"><div class="en">'+(_isSS?'<span style="font-size:11px;color:#e08a8a;font-weight:700">🔗 </span>':'')+ex.n+'</div><div class="ehint">'+hint+'</div>'+preDeloadHint+'</div>'+
+        _restCell+
       '</div>'+
       variantBar+
       '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap">'+
@@ -3395,11 +3460,20 @@ function renderEdit(){
   exArr.forEach(function(ex,idx){
     var typeLbl=ex.t==='time'?'⏱':ex.t==='body'?'🏃':'🏋️';
     var sub=ex.s+' סטים × '+ex.r+' | מנוחה '+ex.rest+'שנ"'+(ex.muscle?' · '+ex.muscle:'');
+    // fix17: תרגיל סופרסט מוצג צמוד ומסומן באדום חלש
+    var isSS = !!ex.ss;
+    var hasSS = !!(exArr[idx+1] && exArr[idx+1].ss);
     var row=document.createElement('div');
-    row.style.cssText='display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--s2);border:1px solid var(--bd);border-radius:12px;margin-bottom:8px';
+    row.style.cssText='display:flex;align-items:center;gap:8px;padding:10px 12px;'
+      +(isSS
+        ? 'background:rgba(200,70,70,.10);border:1px solid rgba(200,70,70,.35);border-radius:12px;margin:-4px 0 8px 0;margin-inline-start:16px;'
+        : 'background:var(--s2);border:1px solid var(--bd);border-radius:12px;'
+          +(hasSS?'margin-bottom:4px;':'margin-bottom:8px;'));
     var info=document.createElement('div');
     info.style.cssText='flex:1;min-width:0';
-    info.innerHTML='<div style="font-weight:700;font-size:15px">'+typeLbl+' '+ex.n+'</div><div style="font-size:12px;color:var(--t3);margin-top:2px">'+sub+'</div>';
+    var ssTag = isSS ? '<span style="font-size:10px;color:#e08a8a;font-weight:700;margin-inline-end:4px">🔗 סופרסט</span>' : '';
+    if(isSS) sub = ex.s+' סטים × '+ex.r+' | ללא מנוחה'+(ex.muscle?' · '+ex.muscle:'');
+    info.innerHTML='<div style="font-weight:700;font-size:15px">'+ssTag+typeLbl+' '+ex.n+'</div><div style="font-size:12px;color:var(--t3);margin-top:2px">'+sub+'</div>';
     var arrows=document.createElement('div');
     arrows.style.cssText='display:flex;flex-direction:column;gap:1px;flex-shrink:0';
     var btnUp=document.createElement('button');
@@ -3411,10 +3485,13 @@ function renderEdit(){
     btnDn.disabled=idx===exArr.length-1;
     btnDn.onclick=(function(i){return function(){moveEx(curEditWkt,i,1);};})(idx);
     arrows.appendChild(btnUp); arrows.appendChild(btnDn);
-    var gear=document.createElement('button');
-    gear.textContent='⚙️'; gear.style.cssText='background:none;border:none;color:var(--t3);font-size:20px;cursor:pointer;padding:4px;flex-shrink:0';
-    gear.onclick=(function(id){return function(){openChgEx(id);};})(ex.id);
-    row.appendChild(info); row.appendChild(arrows); row.appendChild(gear);
+    // fix19: לחיצה על כל המלבן פותחת עריכה, עם הבהוב קצר כמשוב
+    row.style.cssText += ';cursor:pointer';
+    row.onclick=(function(id){return function(e){
+      if(e.target.closest('button')) return; // חצי ההזזה לא פותחים עריכה
+      tapFlash(row, function(){ openChgEx(id); });
+    };})(ex.id);
+    row.appendChild(info); row.appendChild(arrows);
     list.appendChild(row);
   });
 }
@@ -3422,6 +3499,27 @@ function renderEdit(){
 function moveEx(wkt,idx,dir){
   var arr=WKT[wkt].ex, ni=idx+dir;
   if(ni<0||ni>=arr.length) return;
+  // fix17: הצמד לא נפרד — תרגיל עם סופרסט נע יחד איתו, וסופרסט לא נשלף מהצמד
+  var cur=arr[idx], tgt=arr[ni];
+  if(cur && !cur.ss && arr[idx+1] && arr[idx+1].ss){
+    // מזיזים זוג שלם
+    var pair=arr.splice(idx,2);
+    var dest = dir<0 ? Math.max(0,idx-1) : Math.min(arr.length, idx+1);
+    if(dir>0 && arr[dest] && arr[dest].ss) dest++; // דלג מעל זוג שכן שלם
+    arr.splice.apply(arr,[dest,0].concat(pair));
+    saveEx(); renderEdit(); return;
+  }
+  if(cur && cur.ss) return;                 // סופרסט נשאר צמוד למארח שלו
+  if(tgt && tgt.ss){
+    // אין להיכנס לתוך זוג — מדלגים מעליו בשלמותו
+    if(dir<0){
+      var t2=ni-1;
+      if(t2<0) return;
+      arr.splice(idx,1); arr.splice(t2,0,cur);
+      saveEx(); renderEdit(); return;
+    }
+    return;
+  }
   var rows=$('editExList').children;
   var rowA=rows[idx], rowB=rows[ni];
   if(rowA&&rowB){
@@ -3436,6 +3534,51 @@ function moveEx(wkt,idx,dir){
     var tmp=arr[idx]; arr[idx]=arr[ni]; arr[ni]=tmp;
     saveEx(); renderEdit();
   },180);
+}
+
+// fix17: סופרסט — תרגיל צמוד לתרגיל שמעליו, ללא מנוחה ביניהם.
+// הנפח והכוח נספרים לכל תרגיל בנפרד, במלואם, ללא מקדמים.
+var _ssHostId = null;
+// fix18: מעבר מחלון עריכת התרגיל לחלון הוספת הסופרסט
+function openSupersetFromEdit(){
+  var id = chgExId;
+  closeOvl('chgOvl');
+  openSuperset(id);
+}
+function openSuperset(hostId){
+  _ssHostId = hostId;
+  var host = allEx().filter(function(e){return e.id===hostId;})[0];
+  if($('ssHost')) $('ssHost').textContent = host ? ('צמוד ל: '+host.n) : '';
+  ['ssN','ssKg','ssSets','ssReps'].forEach(function(k){ if($(k)) $(k).value=''; });
+  var mc=$('ssMuscle');
+  if(mc) Array.from(mc.children).forEach(function(x){ x.classList.remove('on'); });
+  openOvl('ssOvl');
+}
+function doAddSuper(){
+  var name=($('ssN').value||'').trim();
+  if(!name){ toast('יש לציין שם'); return; }
+  var arr = WKT[curEditWkt].ex;
+  var hi = arr.findIndex(function(e){ return e.id===_ssHostId; });
+  if(hi<0){ toast('התרגיל לא נמצא'); return; }
+  var sel=[], mc=$('ssMuscle');
+  if(mc) Array.from(mc.children).forEach(function(x){
+    if(x.classList.contains('on')){ sel.push(x.textContent); x.classList.remove('on'); }
+  });
+  var ex={
+    id:'S'+Date.now(), n:name, t:$('ssT').value,
+    s:parseInt($('ssSets').value)||3, r:$('ssReps').value||'12',
+    w:parseFloat($('ssKg').value)||0, rest:0,
+    muscle:sel.join(', '), _c:true, ss:_ssHostId // מסמן: זהו הסופרסט של התרגיל הזה
+  };
+  arr.splice(hi+1, 0, ex);
+  saveEx(); closeOvl('ssOvl'); renderEdit();
+  try{ autoExport('סופרסט'); }catch(e){}
+  toast('🔗 "'+name+'" נוסף כסופרסט');
+}
+// האם לתרגיל יש סופרסט צמוד אחריו?
+function hasSuperAfter(wkt, idx){
+  var arr=WKT[wkt].ex, nx=arr[idx+1];
+  return !!(nx && nx.ss);
 }
 
 function doAddEx2(){
