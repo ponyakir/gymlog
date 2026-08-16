@@ -2810,9 +2810,18 @@ function calcExVol(id){
   },0);
 }
 function updateVolDisplay(id){
-  var el=$('vol_'+id); if(!el) return;
-  var vol=calcExVol(id);
-  el.textContent=vol>0?'נפח: '+Math.round(vol)+' ק"ג':'';
+  // fix21: לסופרסט אין כרטיס משלו — הנפח שלו מוצג בכרטיס האב, בנפרד ובמלואו
+  var arr=(WKT[curWkt]&&WKT[curWkt].ex)||[];
+  var i=arr.findIndex(function(e){return e.id===id;});
+  var host=id, ss=null;
+  if(i>=0 && arr[i].ss){ host=arr[i-1]?arr[i-1].id:id; ss=id; }
+  else if(i>=0 && arr[i+1] && arr[i+1].ss){ ss=arr[i+1].id; }
+  var el=$('vol_'+host); if(!el) return;
+  var v1=calcExVol(host), v2=ss?calcExVol(ss):0;
+  if(v1+v2<=0){ el.textContent=''; return; }
+  el.textContent = ss
+    ? 'נפח: '+Math.round(v1)+' + 🔗'+Math.round(v2)+' = '+Math.round(v1+v2)+' ק"ג'
+    : 'נפח: '+Math.round(v1)+' ק"ג';
 }
 
 function adjSets(id, delta){
@@ -3226,49 +3235,65 @@ function updTabs(){
   });
 }
 
+// fix21: בניית שורת סט בודדת — משמשת גם לתרגיל האב וגם לסופרסט המקוננן
+function buildSetRow(ex, i, hasSess, isSuper){
+  var isKg=ex.t==='kg', isTime=ex.t==='time';
+  var sd = hasSess ? (curSess.sets[ex.id]||[])[i] : null;
+  var done = sd?sd.done:false;
+  var sw = sd ? sd.w : defW(ex,curWkt);
+  var sr = sd ? sd.r : '';
+  var inp = '';
+  var repsCtrl = '<div class="rc">'+
+    '<button class="rb" onpointerdown="rAdj(\''+ex.id+'\','+i+',-1)" onpointerup="rEnd()" onpointerleave="rEnd()">−</button>'+
+    '<input class="ri" id="ri_'+ex.id+'_'+i+'" type="number" placeholder="חז\'" value="'+sr+'" inputmode="numeric" onchange="if(this.value!==\'\')updR(\''+ex.id+'\','+i+',this.value)" onfocus="clrFocus(this)" onblur="clrBlur(this)"/>'+
+    '<button class="rb" onpointerdown="rAdj(\''+ex.id+'\','+i+',1)" onpointerup="rEnd()" onpointerleave="rEnd()">+</button>'+
+    '</div>';
+  if(isKg){
+    inp = '<div class="wc">'+
+      '<button class="wb" onpointerdown="adjSt(\''+ex.id+'\','+i+',-'+STEP+')" onpointerup="adjEnd()" onpointerleave="adjEnd()">−</button>'+
+      '<input class="wi" id="wi_'+ex.id+'_'+i+'" type="number" value="'+sw+'" step="any" inputmode="decimal" onchange="if(this.value!==\'\')updW(\''+ex.id+'\','+i+',this.value)" onfocus="clrFocus(this)" onblur="clrBlur(this)"/>'+
+      '<span class="wu">ק"ג</span>'+
+      '<button class="wb" onpointerdown="adjSt(\''+ex.id+'\','+i+','+STEP+')" onpointerup="adjEnd()" onpointerleave="adjEnd()">+</button>'+
+      '</div>'+repsCtrl;
+  } else if(isTime){
+    inp = '<div class="rc" style="flex:1">'+
+      '<button class="rb" onpointerdown="rAdj(\''+ex.id+'\','+i+',-5)" onpointerup="rEnd()" onpointerleave="rEnd()">−</button>'+
+      '<input class="ri" id="ri_'+ex.id+'_'+i+'" type="number" placeholder="שנ\'" value="'+sr+'" inputmode="numeric" onchange="if(this.value!==\'\')updR(\''+ex.id+'\','+i+',this.value)" onfocus="clrFocus(this)" onblur="clrBlur(this)" style="width:46px"/>'+
+      '<span class="wu">שנ\'</span>'+
+      '<button class="rb" onpointerdown="rAdj(\''+ex.id+'\','+i+',5)" onpointerup="rEnd()" onpointerleave="rEnd()">+</button>'+
+      '</div>';
+  } else {
+    inp = '<span class="blbl">משקל גוף</span>'+repsCtrl;
+  }
+  var extra = isSuper ? ' style="background:rgba(200,70,70,.10);border-inline-start:2px solid rgba(200,70,70,.5);padding-inline-start:6px"' : '';
+  var lbl = isSuper ? '<span class="sn" style="color:#e08a8a;font-size:10px">🔗'+(i+1)+'</span>' : '<span class="sn">'+(i+1)+'</span>';
+  return '<div class="sr'+(done?' done':'')+'" id="sr_'+ex.id+'_'+i+'"'+extra+'>'+lbl+inp+
+         '<button class="db'+(done?' on':'')+'" id="db_'+ex.id+'_'+i+'" onclick="togSet(\''+ex.id+'\','+i+')">'+(done?'✓':'○')+'</button></div>';
+}
+
 function renderWkt(){
   const list=$('exList'); list.innerHTML='';
   const hasSess = curSess && curSess.wkt===curWkt;
 
-  WKT[curWkt].ex.forEach(function(ex){
+  var _wArr = WKT[curWkt].ex;
+  _wArr.forEach(function(ex, _wi){
+    if(ex.ss) return; // fix21: הסופרסט מוצג בתוך כרטיס האב, לא ככרטיס נפרד
+    var ssEx = (_wArr[_wi+1] && _wArr[_wi+1].ss) ? _wArr[_wi+1] : null;
     var isKg=ex.t==='kg', isTime=ex.t==='time';
-    var allDone = hasSess && (curSess.sets[ex.id]||[]).length===ex.s && (curSess.sets[ex.id]||[]).every(function(s){return s.done});
+    var allDone = hasSess && (curSess.sets[ex.id]||[]).length===ex.s && (curSess.sets[ex.id]||[]).every(function(s){return s.done})
+                  && (!ssEx || ((curSess.sets[ssEx.id]||[]).length===ssEx.s && (curSess.sets[ssEx.id]||[]).every(function(s){return s.done})));
     var card = document.createElement('div');
     card.className = 'ec'+(allDone?' done':'')+((curSess&&curSess.deload)?' deload':'');
     card.id = 'ec_'+ex.id;
 
     var numSets = (hasSess&&curSess.sets[ex.id])?curSess.sets[ex.id].length:ex.s;
+    // fix21: הסטים של הסופרסט משתלבים אחרי כל סט של תרגיל האב — כרטיס אחד
+    var ssNum = ssEx ? ((hasSess&&curSess.sets[ssEx.id])?curSess.sets[ssEx.id].length:ssEx.s) : 0;
     var rows = '';
-    for(var i=0;i<numSets;i++){
-      var sd = hasSess ? (curSess.sets[ex.id]||[])[i] : null;
-      var done = sd?sd.done:false;
-      var sw = sd ? sd.w : defW(ex,curWkt);
-      var sr = sd ? sd.r : '';
-      var inp = '';
-      var repsCtrl = '<div class="rc">'+
-        '<button class="rb" onpointerdown="rAdj(\''+ex.id+'\','+i+',-1)" onpointerup="rEnd()" onpointerleave="rEnd()">−</button>'+
-        '<input class="ri" id="ri_'+ex.id+'_'+i+'" type="number" placeholder="חז\'" value="'+sr+'" inputmode="numeric" onchange="if(this.value!==\'\')updR(\''+ex.id+'\','+i+',this.value)" onfocus="clrFocus(this)" onblur="clrBlur(this)"/>'+
-        '<button class="rb" onpointerdown="rAdj(\''+ex.id+'\','+i+',1)" onpointerup="rEnd()" onpointerleave="rEnd()">+</button>'+
-        '</div>';
-
-      if(isKg){
-        inp = '<div class="wc">'+
-          '<button class="wb" onpointerdown="adjSt(\''+ex.id+'\','+i+',-'+STEP+')" onpointerup="adjEnd()" onpointerleave="adjEnd()">−</button>'+
-          '<input class="wi" id="wi_'+ex.id+'_'+i+'" type="number" value="'+sw+'" step="any" inputmode="decimal" onchange="if(this.value!==\'\')updW(\''+ex.id+'\','+i+',this.value)" onfocus="clrFocus(this)" onblur="clrBlur(this)"/>'+
-          '<span class="wu">ק"ג</span>'+
-          '<button class="wb" onpointerdown="adjSt(\''+ex.id+'\','+i+','+STEP+')" onpointerup="adjEnd()" onpointerleave="adjEnd()">+</button>'+
-          '</div>'+repsCtrl;
-      } else if(isTime){
-        inp = '<div class="rc" style="flex:1">'+
-          '<button class="rb" onpointerdown="rAdj(\''+ex.id+'\','+i+',-5)" onpointerup="rEnd()" onpointerleave="rEnd()">−</button>'+
-          '<input class="ri" id="ri_'+ex.id+'_'+i+'" type="number" placeholder="שנ\'" value="'+sr+'" inputmode="numeric" onchange="if(this.value!==\'\')updR(\''+ex.id+'\','+i+',this.value)" onfocus="clrFocus(this)" onblur="clrBlur(this)" style="width:46px"/>'+
-          '<span class="wu">שנ\'</span>'+
-          '<button class="rb" onpointerdown="rAdj(\''+ex.id+'\','+i+',5)" onpointerup="rEnd()" onpointerleave="rEnd()">+</button>'+
-          '</div>';
-      } else {
-        inp = '<span class="blbl">משקל גוף</span>'+repsCtrl;
-      }
-      rows += `<div class="sr${done?' done':''}" id="sr_${ex.id}_${i}"><span class="sn">${i+1}</span>${inp}<button class="db${done?' on':''}" id="db_${ex.id}_${i}" onclick="togSet('${ex.id}',${i})">${done?'✓':'○'}</button></div>`;
+    var maxN = Math.max(numSets, ssNum);
+    for(var i=0;i<maxN;i++){
+      if(i<numSets) rows += buildSetRow(ex, i, hasSess, false);
+      if(ssEx && i<ssNum) rows += buildSetRow(ssEx, i, hasSess, true);
     }
 
     var hasVariants = ex.variants && ex.variants.length > 0;
@@ -3304,21 +3329,18 @@ function renderWkt(){
         ex.variants.map(function(v){ return vbtn(v, v, v===actVar); }).join('')+
         '</div>';
     }
-      // fix17: כרטיס סופרסט — צמוד לתרגיל שמעליו, מסומן באדום חלש, ללא מנוחה
-      var _isSS = !!ex.ss;
-      if(_isSS){
-        card.style.cssText += ';background:rgba(200,70,70,.07);border-color:rgba(200,70,70,.32);margin-top:-4px;margin-inline-start:12px';
-      }
-      var _restCell = _isSS
-        ? '<div class="rl" style="color:#e08a8a">🔗 ללא מנוחה</div>'
-        : '<div class="rl" id="rl_'+ex.id+'">'+
-            '⏱ <span id="rt_'+ex.id+'">'+fmtR(ex.rest)+'</span>'+
-            ' <button class="redit" onclick="editR(\''+ex.id+'\')">ערוך</button>'+
-          '</div>';
+      // fix21: שם הסופרסט מוצג בכותרת תחת תרגיל האב
+      var _ssHead = ssEx
+        ? '<div style="font-size:11px;color:#e08a8a;font-weight:700;margin-top:3px">🔗 סופרסט: '+ssEx.n+'</div>'
+        : '';
+      if(ssEx) card.style.borderColor = 'rgba(200,70,70,.28)';
       card.innerHTML =
       '<div class="eh">'+
-        '<div class="einfo"><div class="en">'+(_isSS?'<span style="font-size:11px;color:#e08a8a;font-weight:700">🔗 </span>':'')+ex.n+'</div><div class="ehint">'+hint+'</div>'+preDeloadHint+'</div>'+
-        _restCell+
+        '<div class="einfo"><div class="en">'+ex.n+'</div><div class="ehint">'+hint+'</div>'+preDeloadHint+_ssHead+'</div>'+
+        '<div class="rl" id="rl_'+ex.id+'">'+
+          '⏱ <span id="rt_'+ex.id+'">'+fmtR(ex.rest)+'</span>'+
+          ' <button class="redit" onclick="editR(\''+ex.id+'\')">ערוך</button>'+
+        '</div>'+
       '</div>'+
       variantBar+
       '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap">'+
@@ -3457,42 +3479,58 @@ function renderEdit(){
   var list=$('editExList'); if(!list) return;
   list.innerHTML='';
   var exArr=WKT[curEditWkt].ex;
+  // fix21: הסופרסט אינו שורה עצמאית — הוא מקוננן בתוך כרטיס תרגיל האב
   exArr.forEach(function(ex,idx){
+    if(ex.ss) return; // מוצג בתוך האב
+    var ssEx = (exArr[idx+1] && exArr[idx+1].ss) ? exArr[idx+1] : null;
     var typeLbl=ex.t==='time'?'⏱':ex.t==='body'?'🏃':'🏋️';
     var sub=ex.s+' סטים × '+ex.r+' | מנוחה '+ex.rest+'שנ"'+(ex.muscle?' · '+ex.muscle:'');
-    // fix17: תרגיל סופרסט מוצג צמוד ומסומן באדום חלש
-    var isSS = !!ex.ss;
-    var hasSS = !!(exArr[idx+1] && exArr[idx+1].ss);
+
+    var wrap=document.createElement('div');
+    wrap.style.cssText='background:var(--s2);border:1px solid '+(ssEx?'rgba(200,70,70,.3)':'var(--bd)')+';border-radius:12px;margin-bottom:8px;overflow:hidden';
+
     var row=document.createElement('div');
-    row.style.cssText='display:flex;align-items:center;gap:8px;padding:10px 12px;'
-      +(isSS
-        ? 'background:rgba(200,70,70,.10);border:1px solid rgba(200,70,70,.35);border-radius:12px;margin:-4px 0 8px 0;margin-inline-start:16px;'
-        : 'background:var(--s2);border:1px solid var(--bd);border-radius:12px;'
-          +(hasSS?'margin-bottom:4px;':'margin-bottom:8px;'));
+    row.style.cssText='display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer';
     var info=document.createElement('div');
     info.style.cssText='flex:1;min-width:0';
-    var ssTag = isSS ? '<span style="font-size:10px;color:#e08a8a;font-weight:700;margin-inline-end:4px">🔗 סופרסט</span>' : '';
-    if(isSS) sub = ex.s+' סטים × '+ex.r+' | ללא מנוחה'+(ex.muscle?' · '+ex.muscle:'');
-    info.innerHTML='<div style="font-weight:700;font-size:15px">'+ssTag+typeLbl+' '+ex.n+'</div><div style="font-size:12px;color:var(--t3);margin-top:2px">'+sub+'</div>';
+    info.innerHTML='<div style="font-weight:700;font-size:15px">'+typeLbl+' '+ex.n+'</div><div style="font-size:12px;color:var(--t3);margin-top:2px">'+sub+'</div>';
+
     var arrows=document.createElement('div');
     arrows.style.cssText='display:flex;flex-direction:column;gap:1px;flex-shrink:0';
+    var isFirst = idx===0;
+    var isLast = (idx + (ssEx?2:1)) >= exArr.length;
     var btnUp=document.createElement('button');
-    btnUp.textContent='▲'; btnUp.style.cssText='background:none;border:none;color:var(--t2);font-size:11px;cursor:pointer;padding:2px 4px;line-height:1;opacity:'+(idx===0?'0.2':'1');
-    btnUp.disabled=idx===0;
+    btnUp.textContent='▲'; btnUp.style.cssText='background:none;border:none;color:var(--t2);font-size:11px;cursor:pointer;padding:2px 4px;line-height:1;opacity:'+(isFirst?'0.2':'1');
+    btnUp.disabled=isFirst;
     btnUp.onclick=(function(i){return function(){moveEx(curEditWkt,i,-1);};})(idx);
     var btnDn=document.createElement('button');
-    btnDn.textContent='▼'; btnDn.style.cssText='background:none;border:none;color:var(--t2);font-size:11px;cursor:pointer;padding:2px 4px;line-height:1;opacity:'+(idx===exArr.length-1?'0.2':'1');
-    btnDn.disabled=idx===exArr.length-1;
+    btnDn.textContent='▼'; btnDn.style.cssText='background:none;border:none;color:var(--t2);font-size:11px;cursor:pointer;padding:2px 4px;line-height:1;opacity:'+(isLast?'0.2':'1');
+    btnDn.disabled=isLast;
     btnDn.onclick=(function(i){return function(){moveEx(curEditWkt,i,1);};})(idx);
     arrows.appendChild(btnUp); arrows.appendChild(btnDn);
-    // fix19: לחיצה על כל המלבן פותחת עריכה, עם הבהוב קצר כמשוב
-    row.style.cssText += ';cursor:pointer';
+
     row.onclick=(function(id){return function(e){
-      if(e.target.closest('button')) return; // חצי ההזזה לא פותחים עריכה
-      tapFlash(row, function(){ openChgEx(id); });
+      if(e.target.closest('button')) return;
+      tapFlash(wrap, function(){ openChgEx(id); });
     };})(ex.id);
     row.appendChild(info); row.appendChild(arrows);
-    list.appendChild(row);
+    wrap.appendChild(row);
+
+    // שורת הסופרסט — מקוננת, נפתחת לעריכה משלה
+    if(ssEx){
+      var ssTypeLbl=ssEx.t==='time'?'⏱':ssEx.t==='body'?'🏃':'🏋️';
+      var ssRow=document.createElement('div');
+      ssRow.style.cssText='padding:8px 12px 10px 12px;margin-inline-start:14px;background:rgba(200,70,70,.09);border-top:1px solid rgba(200,70,70,.22);cursor:pointer';
+      ssRow.innerHTML='<div style="font-size:10px;color:#e08a8a;font-weight:700;letter-spacing:.4px;margin-bottom:2px">🔗 סופרסט · ללא מנוחה</div>'
+        +'<div style="font-weight:700;font-size:14px">'+ssTypeLbl+' '+ssEx.n+'</div>'
+        +'<div style="font-size:11px;color:var(--t3);margin-top:2px">'+ssEx.s+' סטים × '+ssEx.r+(ssEx.muscle?' · '+ssEx.muscle:'')+'</div>';
+      ssRow.onclick=(function(id){return function(e){
+        e.stopPropagation();
+        tapFlash(ssRow, function(){ openChgEx(id); });
+      };})(ssEx.id);
+      wrap.appendChild(ssRow);
+    }
+    list.appendChild(wrap);
   });
 }
 
