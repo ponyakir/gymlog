@@ -4083,6 +4083,12 @@ function doReset(){
   pushGuard();
 })();
 
+// fix25: בכל פתיחה נבדק אם יש גרסה חדשה בשרת (מונע היתקעות על גרסה ישנה)
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.ready.then(function(reg){
+    try{ reg.update(); }catch(e){}
+  }).catch(function(){});
+}
 if('serviceWorker' in navigator){
   window.addEventListener('load',function(){
     navigator.serviceWorker.register('sw.js').catch(function(e){ console.warn('SW:',e); });

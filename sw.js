@@ -4,12 +4,14 @@
    - שאר הקבצים (אייקונים, manifest): מטמון קודם.
    - הנתונים עצמם ב-localStorage ולא מושפעים מה-SW בכלל.
 */
-var CACHE = 'gymlog-v1';
+var CACHE = 'gymlog-v2';
 var ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', function(e){
   e.waitUntil(
-    caches.open(CACHE).then(function(c){ return c.addAll(ASSETS); })
+    caches.open(CACHE).then(function(c){
+      return c.addAll(ASSETS.map(function(u){ return new Request(u, {cache:'reload'}); }));
+    })
       .then(function(){ return self.skipWaiting(); })
   );
 });
@@ -28,10 +30,11 @@ self.addEventListener('fetch', function(e){
   var req = e.request;
   if(req.method !== 'GET') return;
 
-  // ניווט / דף ראשי: רשת קודם, מטמון כגיבוי
+  // ניווט / דף ראשי: רשת קודם, תמיד עוקף את מטמון ה-HTTP של הדפדפן
+  // (בלעדי cache:'reload' גיטהאב מגיש HTML עם max-age=600 והעדכון מתעכב 10 דקות)
   if(req.mode === 'navigate' || req.url.match(/index\.html$|\/$/)){
     e.respondWith(
-      fetch(req).then(function(res){
+      fetch(req, {cache: 'reload'}).then(function(res){
         var copy = res.clone();
         caches.open(CACHE).then(function(c){ c.put(req, copy); });
         return res;
