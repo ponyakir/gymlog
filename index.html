@@ -209,6 +209,17 @@ canvas{width:100%;border-radius:var(--r);background:var(--s1);display:block}
   </div>
 </div>
 
+<div class="ovl" id="actOvl" style="display:none;align-items:center;z-index:710">
+  <div style="background:var(--s1);border:1px solid var(--bd);border-radius:18px;padding:20px;max-width:380px;width:92%;max-height:88vh;overflow-y:auto">
+    <div style="font-size:17px;font-weight:800;color:var(--tx);text-align:center">📅 מפת עקביות</div>
+    <div id="actSub" style="font-size:11px;color:var(--t3);text-align:center;margin-bottom:12px"></div>
+    <canvas id="actC" height="150"></canvas>
+    <div style="font-size:9px;color:var(--t3);text-align:center;margin-top:4px">החלקה ימינה = אחורה בזמן</div>
+    <div id="actStats" style="margin-top:14px"></div>
+    <button class="btn sec" style="margin-top:14px" onclick="closeOvl('actOvl')">סגור</button>
+  </div>
+</div>
+
 <div class="ovl" id="dlInfoOvl" style="display:none;align-items:center;z-index:710">
   <div style="background:var(--s1);border:1px solid var(--bd);border-radius:18px;padding:22px;max-width:340px;width:88%;max-height:84vh;overflow-y:auto">
     <div style="font-size:17px;font-weight:800;color:var(--tx);text-align:center;margin-bottom:14px">🌿 מצב דילואד</div>
@@ -568,6 +579,7 @@ canvas{width:100%;border-radius:var(--r);background:var(--s1);display:block}
           <button onclick="setMonthlyTarget(-1)" style="background:var(--s2);border:1px solid var(--bd);border-radius:6px;color:var(--tx);width:28px;height:28px;cursor:pointer;font-size:16px">−</button>
           <span id="monthlyTargetEl" style="font-weight:900;color:var(--acc);min-width:24px;text-align:center">16</span>
           <button onclick="setMonthlyTarget(1)" style="background:var(--s2);border:1px solid var(--bd);border-radius:6px;color:var(--tx);width:28px;height:28px;cursor:pointer;font-size:16px">+</button>
+          <button id="mtOk" onclick="tapFlash(this,confirmMonthlyTarget)" style="background:var(--acc);border:none;border-radius:6px;color:#fff;padding:0 12px;height:28px;cursor:pointer;font-size:12px;font-weight:800;opacity:.35;pointer-events:none">אישור</button>
         </div>
       </div>
       <div style="font-size:11px;color:var(--t3);margin-top:4px">אימונים בחודש (4 בשבוע = 16)</div>
@@ -1575,11 +1587,30 @@ function saveDataFix(key){
 // STATS, GAUGE & INSIGHTS
 // ══════════════════════════════════════════════════════
 function getMonthlyTarget(){ return (P&&P.monthlyTarget)||16; }
+// fix29: היעד נשמר רק בלחיצה על "אישור" — עד אז זו טיוטה בלבד
+var _mtDraft = null;
 function setMonthlyTarget(d){
-  if(!P) return; P.monthlyTarget=Math.max(1,(P.monthlyTarget||16)+d);
-  saveP(); refreshStatsTarget();
+  if(!P) return;
+  if(_mtDraft===null) _mtDraft = getMonthlyTarget();
+  _mtDraft = Math.max(1, _mtDraft + d);
+  if($('monthlyTargetEl')) $('monthlyTargetEl').textContent=_mtDraft;
+  var b=$('mtOk');
+  var dirty = _mtDraft !== getMonthlyTarget();
+  if(b){ b.style.opacity = dirty ? '1' : '.35'; b.style.pointerEvents = dirty ? 'auto' : 'none'; }
 }
-function refreshStatsTarget(){ if($('monthlyTargetEl')) $('monthlyTargetEl').textContent=getMonthlyTarget(); }
+function confirmMonthlyTarget(){
+  if(!P || _mtDraft===null) return;
+  P.monthlyTarget = _mtDraft;
+  _mtDraft = null;
+  saveP(); refreshStatsTarget();
+  try{ renderProgress(); renderHome(); }catch(e){}
+  toast('היעד עודכן ל-'+getMonthlyTarget()+' אימונים בחודש');
+}
+function refreshStatsTarget(){
+  _mtDraft = null;
+  if($('monthlyTargetEl')) $('monthlyTargetEl').textContent=getMonthlyTarget();
+  var b=$('mtOk'); if(b){ b.style.opacity='.35'; b.style.pointerEvents='none'; }
+}
 // תחילת השבוע הקלנדרי: יום ראשון 00:00 (ראשון = ספירה חדשה)
 function weekStartTs(ts){
   var d=new Date(ts);
@@ -1605,10 +1636,12 @@ function calcRolling(){
   var pct=expected>0 ? Math.round(done/expected*100) : 0;
   return {count:done, target:expected, pct:pct};
 }
+// fix29: זמן פעילות אמיתי — מהאימון הראשון בהיסטוריה ועד היום, ללא תלות ביעד
 function calcActiveMonths(){
   if(!sessions.length) return '—';
-  var target=getMonthlyTarget();
-  return (sessions.length/target).toFixed(1);
+  var first=Math.min.apply(null, sessions.map(function(s){return s.start;}));
+  var months=(Date.now()-first)/(30.44*24*3600*1000);
+  return (months<0?0:months).toFixed(1);
 }
 function calcDeloadStatus(){
   // מוצא את האימון האחרון שסומן דילואד; אם אין, סופר מהאימון הראשון
@@ -1645,7 +1678,7 @@ function renderStatsBar(){
     {icon:'🏋️',label:'סה"כ אימונים',val:String(total),color:'var(--acc)'},
     {icon:'🅰️',label:'אימוני A',val:String(wA),color:'var(--acc)'},
     {icon:'🅱️',label:'אימוני B',val:String(wB),color:'var(--acc)'},
-    {icon:'📅',label:'חודשים פעיל',val:activeMonths,color:'var(--acc)'}
+    {icon:'📅',label:'חודשים פעיל',val:activeMonths,color:'var(--acc)',act:true}
   ];
   var dl=calcDeloadStatus();
   if(dl){
@@ -1665,7 +1698,7 @@ function renderStatsBar(){
       : '';
     return `<div style="flex:1;min-width:60px;background:var(--s1);border:1px solid ${s.deloadBar?s.color:'var(--bd)'};border-radius:12px;padding:10px 6px;text-align:center">
       <div style="font-size:18px">${s.icon}</div>
-      <div ${s.deloadBar?'onclick="tapFlash(this.parentNode,openDeloadInfo)" style="cursor:pointer"':''}>
+      <div ${s.deloadBar?'onclick="tapFlash(this.parentNode,openDeloadInfo)" style="cursor:pointer"':(s.act?'onclick="tapFlash(this.parentNode,openActivityMap)" style="cursor:pointer"':'')}>
         <div style="font-size:16px;font-weight:900;color:${s.color};margin:2px 0">${s.val}</div>
         <div style="font-size:10px;color:var(--t3)">${s.label}</div>
       </div>
@@ -1745,6 +1778,140 @@ function chgGearChanged(){
   if($('angInp')) $('angInp').value='';
   if($('angOut')) $('angOut').textContent='';
   openOvl('angOvl');
+}
+
+// fix29: מפת עקביות היסטורית — ערך קבוע לכל שבוע, ללא תלות ביעד המשתנה.
+// 0→0 · 1→.25 · 2→.5 · 3→.625 · 4→.75 · 5→.875 · 6+→1 (אינטרפולציה ליניארית בין הנקודות)
+function weekScore(n){
+  if(n<=0) return 0;
+  if(n>=6) return 1;
+  var pts=[0,0.25,0.5,0.625,0.75,0.875,1];
+  return pts[n];
+}
+function buildActivityWeeks(){
+  if(!sessions.length) return [];
+  var msWeek=7*24*3600*1000;
+  var first=weekStartTs(Math.min.apply(null, sessions.map(function(s){return s.start;})));
+  var last=weekStartTs(Date.now());
+  var out=[];
+  for(var t=first; t<=last; t+=msWeek){
+    var inW=sessions.filter(function(s){ return s.start>=t && s.start<t+msWeek; });
+    out.push({ ts:t, n:inW.length, dl:inW.some(function(s){return s.deload;}), v:weekScore(inW.length) });
+  }
+  return out;
+}
+function openActivityMap(){
+  var w=buildActivityWeeks();
+  var sub=$('actSub');
+  if(!w.length){
+    if(sub) sub.textContent='אין עדיין נתונים';
+    if($('actStats')) $('actStats').innerHTML='';
+    openOvl('actOvl'); return;
+  }
+  if(sub) sub.textContent=_fmtDate(w[0].ts)+' – היום · '+w.length+' שבועות';
+
+  // סטטיסטיקות
+  var best=0, run=0, gapBest=0, gapRun=0, empty=0, sum=0;
+  w.forEach(function(x){
+    sum+=x.n;
+    if(x.n>0){ run++; if(run>best) best=run; gapRun=0; }
+    else { empty++; gapRun++; if(gapRun>gapBest) gapBest=gapRun; run=0; }
+  });
+  var avg=Math.round(sum/w.length*10)/10;
+  function stat(lbl,val,clr){
+    return '<div style="flex:1;text-align:center;background:var(--s2);border:1px solid var(--bd);border-radius:10px;padding:9px 4px">'
+      +'<div style="font-size:17px;font-weight:900;color:'+clr+'">'+val+'</div>'
+      +'<div style="font-size:9px;color:var(--t3);margin-top:2px">'+lbl+'</div></div>';
+  }
+  if($('actStats')) $('actStats').innerHTML='<div style="display:flex;gap:6px">'
+    +stat('רצף הכי ארוך',best+' שב\'','#16a34a')
+    +stat('הפסקה ארוכה',gapBest+' שב\'','#ef4444')
+    +stat('שבועות ריקים',empty,'var(--t2)')
+    +stat('ממוצע לשבוע',avg,'var(--acc2)')
+    +'</div>';
+
+  window._actOff=0;
+  openOvl('actOvl');
+  setTimeout(function(){ drawActivityChart(); },30);
+}
+function drawActivityChart(){
+  var cv=$('actC'); if(!cv) return;
+  var w=buildActivityWeeks(); if(!w.length) return;
+  var dpr=window.devicePixelRatio||1;
+  var CW=cv.parentNode.clientWidth-40, CH=150;
+  cv.width=CW*dpr; cv.height=CH*dpr; cv.style.width=CW+'px'; cv.style.height=CH+'px';
+  var x=cv.getContext('2d'); x.setTransform(dpr,0,0,dpr,0,0);
+  x.clearRect(0,0,CW,CH);
+
+  var WIN=14, maxOff=Math.max(0,w.length-WIN);
+  if(typeof window._actOff!=='number') window._actOff=0;
+  window._actOff=Math.max(0,Math.min(maxOff,window._actOff));
+  var firstF=w.length-WIN-window._actOff;
+  var pad={l:26,r:8,t:12,b:26};
+  var gW=CW-pad.l-pad.r, gH=CH-pad.t-pad.b;
+  var bw=gW/WIN;
+  cv._actUnit=bw;
+
+  // קווי עזר
+  [0,0.5,1].forEach(function(g){
+    var y=pad.t+gH-g*gH;
+    x.strokeStyle='rgba(255,255,255,.06)'; x.lineWidth=1;
+    x.beginPath(); x.moveTo(pad.l,y); x.lineTo(CW-pad.r,y); x.stroke();
+    x.fillStyle='#555'; x.font='9px Heebo'; x.textAlign='right';
+    x.fillText(g.toFixed(g===0?0:1), pad.l-4, y+3);
+  });
+
+  var j0=Math.max(0,Math.floor(firstF)), j1=Math.min(w.length-1,Math.ceil(firstF+WIN));
+  for(var j=j0;j<=j1;j++){
+    var it=w[j];
+    var bx=pad.l+(j-firstF)*bw;
+    if(bx+bw<pad.l-1||bx>CW-pad.r+1) continue;
+    var bh=Math.max(it.v>0?3:2, it.v*gH);
+    var by=pad.t+gH-bh;
+    var col = it.n===0 ? 'rgba(255,255,255,.10)'
+            : it.dl ? '#7dd3a0'
+            : it.v>=1 ? '#16a34a' : (it.v>=0.6 ? '#84b93a' : (it.v>=0.4 ? '#eab308' : '#f59e0b'));
+    x.fillStyle=col;
+    var pw=Math.max(2,bw-3);
+    x.beginPath();
+    if(x.roundRect) x.roundRect(bx+1.5,by,pw,bh,2); else x.rect(bx+1.5,by,pw,bh);
+    x.fill();
+    if(it.n>0){
+      x.fillStyle='rgba(255,255,255,.65)'; x.font='bold 8px Heebo'; x.textAlign='center';
+      x.fillText(it.n, bx+1.5+pw/2, by-3);
+    }
+  }
+  // תוויות חודש
+  x.fillStyle='#555'; x.font='9px Heebo'; x.textAlign='center';
+  var lastM=null;
+  for(var j2=j0;j2<=j1;j2++){
+    var d2=new Date(w[j2].ts), m=d2.getMonth();
+    if(m!==lastM){
+      lastM=m;
+      var bx2=pad.l+(j2-firstF)*bw;
+      if(bx2>pad.l-4 && bx2<CW-pad.r) x.fillText((m+1)+'/'+String(d2.getFullYear()).slice(2), bx2+bw/2, CH-8);
+    }
+  }
+
+  if(!cv._hasSwipe){
+    var sx=0,sy=0,so=0,drag=null;
+    cv.addEventListener('touchstart',function(e){ sx=e.touches[0].clientX; sy=e.touches[0].clientY; so=window._actOff||0; drag=null; },{passive:true});
+    cv.addEventListener('touchmove',function(e){
+      var dx=e.touches[0].clientX-sx, dy=e.touches[0].clientY-sy;
+      if(drag===null){ if(Math.abs(dx)>8||Math.abs(dy)>8) drag=Math.abs(dx)>Math.abs(dy); else return; }
+      if(!drag) return;
+      e.preventDefault();
+      var unit=cv._actUnit||24;
+      var mo=Math.max(0,buildActivityWeeks().length-14);
+      window._actOff=Math.max(0,Math.min(mo,so+dx/unit));
+      drawActivityChart();
+    },{passive:false});
+    cv.addEventListener('touchend',function(){
+      if(drag){ window._actOff=Math.round(window._actOff||0); drawActivityChart(); }
+      drag=null;
+    },{passive:true});
+    cv._hasSwipe=true;
+  }
 }
 
 // fix22: פירוט מצב הדילואד — מקור הספירה, היסטוריה והמלצה
