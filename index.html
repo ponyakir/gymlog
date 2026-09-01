@@ -190,7 +190,9 @@ canvas{width:100%;border-radius:var(--r);background:var(--s1);display:block}
   <div style="background:var(--s1);border:1px solid var(--bd);border-radius:18px;padding:24px;max-width:320px;width:84%;text-align:center">
     <div style="font-size:17px;font-weight:800;color:var(--tx);margin-bottom:4px">➕ תוכנית חדשה</div>
     <div id="npKey" style="font-size:11px;color:var(--t3);margin-bottom:14px"></div>
-    <input class="inp" id="npName" placeholder="שם התוכנית (למשל: רגליים)" style="text-align:center;margin-bottom:14px"/>
+    <input class="inp" id="npName" placeholder="שם התוכנית (למשל: רגליים)" style="text-align:center;margin-bottom:10px"/>
+    <label class="lbl" style="text-align:center;display:block">פעמים בשבוע (מתוכנן)</label>
+    <input class="inp" id="npFreq" type="number" min="1" max="7" step="1" value="1" inputmode="numeric" style="text-align:center;margin-bottom:14px"/>
     <div style="display:flex;gap:10px">
       <button class="btn" style="background:var(--s2);color:var(--tx);border:1px solid var(--bd)" onclick="closeOvl('newPlanOvl')">ביטול</button>
       <button class="btn" onclick="doNewPlan()">צור</button>
@@ -738,8 +740,8 @@ function loadAll(){
   if(meta && meta.length){
     Object.keys(WKT).forEach(function(k){ if(!meta.some(function(m){return m.k===k;})) delete WKT[k]; });
     meta.forEach(function(m){
-      if(!WKT[m.k]) WKT[m.k] = { name:m.name, ex: ld('ex_'+m.k, []) };
-      else { WKT[m.k].name = m.name; if(m.k!=='A'&&m.k!=='B') WKT[m.k].ex = ld('ex_'+m.k, WKT[m.k].ex); }
+      if(!WKT[m.k]) WKT[m.k] = { name:m.name, ex: ld('ex_'+m.k, []), freq:m.freq||1 };
+      else { WKT[m.k].name = m.name; WKT[m.k].freq = m.freq||1; if(m.k!=='A'&&m.k!=='B') WKT[m.k].ex = ld('ex_'+m.k, WKT[m.k].ex); }
     });
   }
   if(!WKT[curWkt]) curWkt = planKeys()[0] || 'A';
@@ -759,7 +761,7 @@ function applyGear(ex, v){
   if(cf!==1) ex.coefHist=[{from:0, c:cf}];
 }
 function savePlanMeta(){
-  sv('planMeta', planKeys().map(function(k){ return {k:k, name:WKT[k].name}; }));
+  sv('planMeta', planKeys().map(function(k){ return {k:k, name:WKT[k].name, freq:WKT[k].freq||1}; }));
 }
 function saveEx(){
   planKeys().forEach(function(k){
@@ -3272,7 +3274,7 @@ function saveR(id){
 function autoExport(label){
   var now=new Date();
   var dateStr=now.toLocaleDateString('he-IL',{year:'numeric',month:'2-digit',day:'2-digit'}).replace(/\//g,'-');
-  var blob=new Blob([JSON.stringify({P:P,wLog:wLog,sessions:sessions,exA:(WKT.A?WKT.A.ex:[]),exB:(WKT.B?WKT.B.ex:[]),plans:planKeys().map(function(k){return {k:k,name:WKT[k].name,ex:WKT[k].ex};}),bridges:getBridges(),decisions:getDecisions(),exNameReg:ld('exNameReg',{}),exMuscleReg:ld('exMuscleReg',{}),muscleMap:getMuscleMap(),deloadReset:ld('deloadReset',0),v:4},null,2)],{type:'application/json'});
+  var blob=new Blob([JSON.stringify({P:P,wLog:wLog,sessions:sessions,exA:(WKT.A?WKT.A.ex:[]),exB:(WKT.B?WKT.B.ex:[]),plans:planKeys().map(function(k){return {k:k,name:WKT[k].name,freq:WKT[k].freq||1,ex:WKT[k].ex};}),bridges:getBridges(),decisions:getDecisions(),exNameReg:ld('exNameReg',{}),exMuscleReg:ld('exMuscleReg',{}),muscleMap:getMuscleMap(),deloadReset:ld('deloadReset',0),v:4},null,2)],{type:'application/json'});
   var a=document.createElement('a');
   a.href=URL.createObjectURL(blob);
   a.download='gymlog_'+dateStr+(label?'_'+label:'')+'.json';
@@ -3704,50 +3706,73 @@ function navToWkt(){ if(curSess) goTo('W'); }
 
 // fix27: סטים שבועיים לכל שריר — בהנחה שכל התוכניות מבוצעות פעם אחת בשבוע.
 // סט מתחלק בין השרירים של התרגיל לפי יחסי המיפוי (תרגיל ל-2 שרירים = חצי סט לכל אחד).
-function calcWeeklySets(){
+// תדירות בפועל: כמה פעמים בשבוע בוצעה התוכנית ב-4 השבועות האחרונים
+function actualFreq(k){
+  var ms4=28*24*3600*1000, from=Date.now()-ms4;
+  var n=sessions.filter(function(s){ return s.wkt===k && s.start>=from; }).length;
+  return n/4;
+}
+// סטים שבועיים לשריר. mode: 'plan' לפי התדירות המתוכננת · 'real' לפי הביצוע בפועל
+function calcWeeklySets(mode){
   var map={};
   planKeys().forEach(function(k){
+    var f = (mode==='real') ? actualFreq(k) : (WKT[k].freq||1);
+    if(!f) return;
     (WKT[k].ex||[]).forEach(function(ex){
       if(hasInvalidMuscle(ex.id)) return;
       var sets=parseInt(ex.s)||0;
       if(!sets) return;
       var split=resolveMuscleSplit(ex.id);
-      var ms=Object.keys(split);
-      if(!ms.length) return;
-      ms.forEach(function(m){
+      Object.keys(split).forEach(function(m){
         if(m==='__DELETED__') return;
-        map[m]=(map[m]||0)+sets*(split[m]||0);
+        map[m]=(map[m]||0)+sets*(split[m]||0)*f;
       });
     });
   });
-  return Object.keys(map).map(function(m){ return {m:m, v:map[m]}; })
-    .sort(function(a,b){ return b.v-a.v; });
+  return map;
 }
 
 function renderWeeklyVolume(){
   var box=$('weeklyVolBox'); if(!box) return;
-  var rows=calcWeeklySets();
-  if(!rows.length){ box.innerHTML=''; return; }
-  var total=rows.reduce(function(a,r){return a+r.v;},0);
-  var mx=rows[0].v||1;
-  // 10–20 סטים לשריר בשבוע נחשב טווח יעיל
+  var plan=calcWeeklySets('plan'), real=calcWeeklySets('real');
+  var names=Object.keys(plan);
+  if(!names.length){ box.innerHTML=''; return; }
+  names.sort(function(a,b){ return plan[b]-plan[a]; });
+  var mx=Math.max.apply(null, names.map(function(m){ return Math.max(plan[m], real[m]||0); })) || 1;
+  // 10–20 סטים לשריר בשבוע = טווח יעיל מקובל
   function clr(v){ return v<10 ? '#eab308' : (v<=20 ? '#16a34a' : '#ef4444'); }
-  var body=rows.map(function(r){
-    var v=Math.round(r.v*10)/10;
-    return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">'
-      +'<div style="width:74px;font-size:11px;color:var(--t2);text-align:start;flex:none">'+r.m+'</div>'
-      +'<div style="flex:1;height:6px;background:var(--s2);border-radius:3px;overflow:hidden">'
-        +'<div style="height:100%;width:'+Math.round(r.v/mx*100)+'%;background:'+clr(r.v)+';border-radius:3px"></div></div>'
-      +'<div style="width:30px;font-size:11px;font-weight:800;color:'+clr(r.v)+';text-align:end;flex:none">'+v+'</div>'
-      +'</div>';
+  function r1(v){ return Math.round(v*10)/10; }
+
+  var freqTxt = planKeys().map(function(k){
+    return k+'×'+(WKT[k].freq||1);
+  }).join(' · ');
+  var realTot = planKeys().reduce(function(a,k){ return a+actualFreq(k); },0);
+
+  var body=names.map(function(m){
+    var p=plan[m], a=real[m]||0;
+    return '<div style="margin-bottom:8px">'
+      +'<div style="display:flex;align-items:center;gap:8px">'
+        +'<div style="width:70px;font-size:11px;color:var(--t2);flex:none">'+m+'</div>'
+        +'<div style="flex:1">'
+          +'<div style="height:7px;background:var(--s2);border-radius:4px;overflow:hidden;margin-bottom:2px">'
+            +'<div style="height:100%;width:'+Math.round(p/mx*100)+'%;background:'+clr(p)+';border-radius:4px"></div></div>'
+          +'<div style="height:4px;background:var(--s2);border-radius:3px;overflow:hidden">'
+            +'<div style="height:100%;width:'+Math.round(a/mx*100)+'%;background:'+clr(a)+';opacity:.5;border-radius:3px"></div></div>'
+        +'</div>'
+        +'<div style="width:52px;text-align:end;flex:none;line-height:1.25">'
+          +'<div style="font-size:11px;font-weight:800;color:'+clr(p)+'">'+r1(p)+'</div>'
+          +'<div style="font-size:9px;color:var(--t3)">'+r1(a)+'</div></div>'
+      +'</div></div>';
   }).join('');
+
   box.innerHTML='<div style="background:var(--s1);border:1px solid var(--bd);border-radius:16px;padding:18px 16px">'
-    +'<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px">'
-      +'<div style="font-size:11px;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:1px">סטים שבועיים לשריר</div>'
-      +'<div style="font-size:11px;color:var(--t3)">'+Math.round(total)+' סה"כ</div></div>'
-    +'<div style="font-size:10px;color:var(--t3);margin-bottom:12px">בהנחה שכל '+planKeys().length+' התוכניות מבוצעות פעם בשבוע</div>'
+    +'<div style="font-size:11px;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">סטים שבועיים לשריר</div>'
+    +'<div style="font-size:10px;color:var(--t3);margin-bottom:4px">מתוכנן: '+freqTxt+' בשבוע</div>'
+    +'<div style="font-size:10px;color:var(--t3);margin-bottom:12px">בפועל: '+(Math.round(realTot*10)/10)+' אימונים בשבוע (ממוצע 4 שבועות)</div>'
     +body
-    +'<div style="font-size:9px;color:var(--t3);margin-top:10px;text-align:center">🟡 מתחת ל-10 · 🟢 10–20 (טווח יעיל) · 🔴 מעל 20</div>'
+    +'<div style="font-size:9px;color:var(--t3);margin-top:8px;text-align:center;line-height:1.7">'
+      +'פס עליון + מספר גדול = מתוכנן · פס תחתון + מספר קטן = בפועל<br>'
+      +'🟡 מתחת ל-10 · 🟢 10–20 (טווח יעיל) · 🔴 מעל 20</div>'
     +'</div>';
 }
 
@@ -3803,6 +3828,7 @@ function openNewPlan(){
   var k=nextPlanKey();
   if($('npKey')) $('npKey').textContent='תסומן כתוכנית '+k;
   if($('npName')) $('npName').value='';
+  if($('npFreq')) $('npFreq').value='1';
   openOvl('newPlanOvl');
 }
 function doNewPlan(){
@@ -3810,7 +3836,8 @@ function doNewPlan(){
   if(!name){ toast('יש לציין שם'); return; }
   if(planKeys().length>=5){ toast('מקסימום 5 תוכניות'); return; }
   var k=nextPlanKey(); if(!k) return;
-  WKT[k]={ name:name, ex:[] };
+  var freq=Math.max(1,Math.min(7,parseInt((($('npFreq')||{}).value),10)||1));
+  WKT[k]={ name:name, ex:[], freq:freq };
   saveEx();
   closeOvl('newPlanOvl');
   setEditWkt(k);
@@ -3822,7 +3849,13 @@ function renamePlan(){
   askText('שם חדש לתוכנית '+k, WKT[k].name||'', function(v){
     WKT[k].name=v; saveEx(); setEditWkt(k);
     try{ updTabs(); }catch(e){}
-    toast('השם עודכן');
+    // fix28: מיד אחרי השם — תדירות מתוכננת
+    askText('פעמים בשבוע (מתוכנן) — תוכנית '+k, String(WKT[k].freq||1), function(f){
+      var n=Math.max(1,Math.min(7,parseInt(f,10)||1));
+      WKT[k].freq=n; saveEx();
+      try{ renderHome(); }catch(e){}
+      toast('עודכן: '+n+' פעמים בשבוע');
+    });
   });
 }
 function deletePlan(){
@@ -4185,7 +4218,7 @@ function doImport(e){
     // fix24: ייבוא כל התוכניות (כולל C/D/E ומחיקות); נפילה לאחור ל-exA/exB בגיבוי ישן
     if(d.plans && d.plans.length){
       Object.keys(WKT).forEach(function(k){ delete WKT[k]; });
-      d.plans.forEach(function(p){ WKT[p.k]={ name:p.name||'', ex:p.ex||[] }; });
+      d.plans.forEach(function(p){ WKT[p.k]={ name:p.name||'', ex:p.ex||[], freq:p.freq||1 }; });
       if(!WKT[curWkt]) curWkt=planKeys()[0];
       if(!WKT[curEditWkt]) curEditWkt=planKeys()[0];
       saveEx();
