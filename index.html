@@ -371,6 +371,25 @@ canvas{width:100%;border-radius:var(--r);background:var(--s1);display:block}
     <label class="lbl">חזרות חדשות</label>
     <input class="inp" id="chgReps" placeholder="8">
 
+    <div class="r2" id="chgRestRow">
+      <div>
+        <label class="lbl">מנוחה (שניות)</label>
+        <input class="inp" id="chgRest" type="number" min="0" step="5" placeholder="60" inputmode="numeric">
+      </div>
+      <div>
+        <label class="lbl">סוג מנוף</label>
+        <select class="inp" id="chgGear" onchange="chgGearChanged()">
+          <option value="1">🏋️ חופשי (×1)</option>
+          <option value="0.5">🔀 פולי 2:1 (×0.5)</option>
+          <option value="0.87">⚙️ מכונה / האק 60° (×0.87)</option>
+          <option value="0.71">⚙️ מזחלת 45° (×0.71)</option>
+          <option value="0.5m">⚙️ מזחלת 30° (×0.5)</option>
+          <option value="custom">📐 זווית אחרת…</option>
+        </select>
+      </div>
+    </div>
+    <div id="chgGearNote" style="font-size:10px;color:var(--t3);margin:-4px 0 10px">משמש לחישוב המשקל האמיתי בגרף הנפח</div>
+
     <label class="lbl">וריאנטים / ציוד (מופרד בפסיק, אופציונלי)</label>
     <input class="inp" id="chgVariants" placeholder="סמית, מכונה, משקולות">
 
@@ -1672,7 +1691,34 @@ function angConfirm(){
   if(isNaN(deg)||deg<=0||deg>90){ toast('זווית לא תקינה'); return; }
   var coef=Math.round(Math.sin(deg*Math.PI/180)*100)/100;
   closeOvl('angOvl');
+  // fix26: זווית שהוזנה מחלון עריכת התרגיל
+  if(_angFromEdit){
+    _angFromEdit=false;
+    var ex=allEx().filter(function(e){return e.id===chgExId;})[0];
+    if(ex){
+      var hadTag = ex.coefHist && ex.coefHist.length;
+      if(!hadTag){ if(coef!==1) ex.coefHist=[{from:0,c:coef}]; }
+      else if(coef!==exCoefAt(ex,Date.now())) setExCoefFrom(ex, coef, Date.now());
+      ex.gear='custom';
+      saveEx();
+      var o=$('chgGear') && $('chgGear').querySelector('option[value="custom"]');
+      if(o) o.textContent='📐 מותאם (×'+coef+')';
+      toast('מקדם ×'+coef+' נשמר');
+      try{ renderProg(); }catch(e){}
+    }
+    openOvl('chgOvl');
+    return;
+  }
   setExCoef(_angKey, coef);
+}
+var _angFromEdit=false;
+function chgGearChanged(){
+  var s=$('chgGear'); if(!s || s.value!=='custom') return;
+  _angFromEdit=true;
+  closeOvl('chgOvl');
+  if($('angInp')) $('angInp').value='';
+  if($('angOut')) $('angOut').textContent='';
+  openOvl('angOvl');
 }
 
 // fix22: פירוט מצב הדילואד — מקור הספירה, היסטוריה והמלצה
@@ -2980,6 +3026,28 @@ function openChgEx(id){
   });
 
   chgErr.textContent = '';
+  // fix26: מנוחה וסוג מנוף
+  if($('chgRest')) $('chgRest').value = (ex.rest!=null ? ex.rest : 60);
+  var _gs=$('chgGear');
+  if(_gs){
+    var cur = exCoefAt(ex, Date.now());
+    var opts = Array.from(_gs.options).map(function(o){return o.value;});
+    var v = String(cur);
+    if(cur===0.5 && (ex.gear==='slide30')) v='0.5m';
+    _gs.value = (opts.indexOf(v)>=0) ? v : 'custom';
+    if(_gs.value==='custom'){
+      var extra=_gs.querySelector('option[value="custom"]');
+      if(extra) extra.textContent='📐 מותאם (×'+cur+')';
+    }
+  }
+  // בסופרסט אין מנוחה — השדה נעול
+  var _rr=$('chgRestRow'), _rn=$('chgGearNote');
+  if(_rr && $('chgRest')){
+    $('chgRest').disabled = !!ex.ss;
+    if(ex.ss){ $('chgRest').value=0; }
+    $('chgRest').style.opacity = ex.ss ? '.45' : '1';
+  }
+  if(_rn) _rn.textContent = ex.ss ? 'סופרסט — ללא מנוחה. סוג המנוף משפיע על גרף הנפח.' : 'משמש לחישוב המשקל האמיתי בגרף הנפח';
   // fix18: כפתור הסופרסט מוצג רק כשרלוונטי
   var _ssB = $('chgSsBtn');
   if(_ssB){
@@ -3001,6 +3069,8 @@ function doChgEx(){
   var newW = parseFloat(chgW.value);
   if(isNaN(newW)) newW = 0;
   var newReps = (chgReps.value || '').trim();
+  var newRest = Math.max(0, parseInt(($('chgRest')||{}).value, 10) || 0);
+  var gearVal = (($('chgGear')||{}).value) || '1';
 
   var muscles = Array.from(chgMuscle.children)
     .filter(function(c){ return c.classList.contains('on'); })
@@ -3040,6 +3110,22 @@ function doChgEx(){
   ex.w = newW;
   ex.r = newReps;
   ex.muscle = muscles.join(',');
+  if(!ex.ss) ex.rest = newRest; // fix26: בסופרסט המנוחה תמיד 0
+
+  // fix26: סוג מנוף → מקדם משקל אמיתי.
+  // תיוג ראשון = השלמת מידע חסר, חל על כל ההיסטוריה.
+  // שינוי תיוג קיים = חל מהיום קדימה בלבד, ההיסטוריה לא זזה.
+  if(gearVal !== 'custom'){
+    var newCoef = (gearVal==='0.5m') ? 0.5 : parseFloat(gearVal);
+    ex.gear = (gearVal==='0.5m') ? 'slide30' : gearVal;
+    var hadTag = ex.coefHist && ex.coefHist.length;
+    var curCoef = exCoefAt(ex, Date.now());
+    if(!hadTag){
+      if(newCoef !== 1) ex.coefHist = [{from:0, c:newCoef}];
+    } else if(newCoef !== curCoef){
+      setExCoefFrom(ex, newCoef, Date.now());
+    }
+  }
   var variantsRaw = ($('chgVariants') ? $('chgVariants').value : '') || '';
   ex.variants = variantsRaw.split(',').map(function(s){return s.trim();}).filter(function(s){return s.length;});
 
@@ -3775,7 +3861,9 @@ function renderEdit(){
     if(ex.ss) return; // מוצג בתוך האב
     var ssEx = (exArr[idx+1] && exArr[idx+1].ss) ? exArr[idx+1] : null;
     var typeLbl=ex.t==='time'?'⏱':ex.t==='body'?'🏃':'🏋️';
-    var sub=ex.s+' סטים × '+ex.r+' | מנוחה '+ex.rest+'שנ"'+(ex.muscle?' · '+ex.muscle:'');
+    var _cf=exCoefAt(ex, Date.now());
+    var _gearTxt = _cf===1 ? '' : ' · ×'+_cf;
+    var sub=ex.s+' סטים × '+ex.r+' | מנוחה '+ex.rest+'שנ"'+_gearTxt+(ex.muscle?' · '+ex.muscle:'');
 
     var wrap=document.createElement('div');
     wrap.style.cssText='background:var(--s2);border:1px solid '+(ssEx?'rgba(200,70,70,.3)':'var(--bd)')+';border-radius:12px;margin-bottom:8px;overflow:hidden';
@@ -3814,7 +3902,7 @@ function renderEdit(){
       ssRow.style.cssText='padding:8px 12px 10px 12px;margin-inline-start:14px;background:rgba(200,70,70,.09);border-top:1px solid rgba(200,70,70,.22);cursor:pointer';
       ssRow.innerHTML='<div style="font-size:10px;color:#e08a8a;font-weight:700;letter-spacing:.4px;margin-bottom:2px">🔗 סופרסט · ללא מנוחה</div>'
         +'<div style="font-weight:700;font-size:14px">'+ssTypeLbl+' '+ssEx.n+'</div>'
-        +'<div style="font-size:11px;color:var(--t3);margin-top:2px">'+ssEx.s+' סטים × '+ssEx.r+(ssEx.muscle?' · '+ssEx.muscle:'')+'</div>';
+        +'<div style="font-size:11px;color:var(--t3);margin-top:2px">'+ssEx.s+' סטים × '+ssEx.r+(exCoefAt(ssEx,Date.now())!==1?' · ×'+exCoefAt(ssEx,Date.now()):'')+(ssEx.muscle?' · '+ssEx.muscle:'')+'</div>';
       ssRow.onclick=(function(id){return function(e){
         e.stopPropagation();
         tapFlash(ssRow, function(){ openChgEx(id); });
