@@ -175,6 +175,38 @@ canvas{width:100%;border-radius:var(--r);background:var(--s1);display:block}
 <body>
 
 <!-- ONBOARDING -->
+<div class="ovl" id="txtOvl" style="display:none;align-items:center;z-index:740">
+  <div style="background:var(--s1);border:1px solid var(--bd);border-radius:18px;padding:24px;max-width:320px;width:84%;text-align:center">
+    <div id="txtTitle" style="font-size:16px;font-weight:800;color:var(--tx);margin-bottom:14px"></div>
+    <input class="inp" id="txtInp" style="text-align:center;margin-bottom:14px"/>
+    <div style="display:flex;gap:10px">
+      <button class="btn" style="background:var(--s2);color:var(--tx);border:1px solid var(--bd)" onclick="closeOvl('txtOvl')">ביטול</button>
+      <button class="btn" onclick="txtConfirm()">אישור</button>
+    </div>
+  </div>
+</div>
+
+<div class="ovl" id="newPlanOvl" style="display:none;align-items:center;z-index:730">
+  <div style="background:var(--s1);border:1px solid var(--bd);border-radius:18px;padding:24px;max-width:320px;width:84%;text-align:center">
+    <div style="font-size:17px;font-weight:800;color:var(--tx);margin-bottom:4px">➕ תוכנית חדשה</div>
+    <div id="npKey" style="font-size:11px;color:var(--t3);margin-bottom:14px"></div>
+    <input class="inp" id="npName" placeholder="שם התוכנית (למשל: רגליים)" style="text-align:center;margin-bottom:14px"/>
+    <div style="display:flex;gap:10px">
+      <button class="btn" style="background:var(--s2);color:var(--tx);border:1px solid var(--bd)" onclick="closeOvl('newPlanOvl')">ביטול</button>
+      <button class="btn" onclick="doNewPlan()">צור</button>
+    </div>
+  </div>
+</div>
+
+<div class="ovl" id="pdfOvl" style="display:none;align-items:center;z-index:730">
+  <div style="background:var(--s1);border:1px solid var(--bd);border-radius:18px;padding:24px;max-width:320px;width:84%;text-align:center">
+    <div style="font-size:17px;font-weight:800;color:var(--tx);margin-bottom:4px">📄 הפק PDF</div>
+    <div style="font-size:11px;color:var(--t3);margin-bottom:16px">ייפתח תצוגת הדפסה — בחר "שמור כ-PDF"</div>
+    <div id="pdfOpts" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px"></div>
+    <button class="btn sec" onclick="closeOvl('pdfOvl')">ביטול</button>
+  </div>
+</div>
+
 <div class="ovl" id="dlInfoOvl" style="display:none;align-items:center;z-index:710">
   <div style="background:var(--s1);border:1px solid var(--bd);border-radius:18px;padding:22px;max-width:340px;width:88%;max-height:84vh;overflow-y:auto">
     <div style="font-size:17px;font-weight:800;color:var(--tx);text-align:center;margin-bottom:14px">🌿 מצב דילואד</div>
@@ -306,20 +338,7 @@ canvas{width:100%;border-radius:var(--r);background:var(--s1);display:block}
     <div style="font-size:48px;margin-bottom:8px">💪</div>
     <h2 style="margin-bottom:6px">שלום, <span id="startName"></span>!</h2>
     <p id="lastWktInfo" style="margin-bottom:20px;font-size:14px;color:var(--t2)"></p>
-    <div style="display:flex;gap:8px;margin-bottom:4px">
-      <div onclick="toggleStartDeload('A')" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:7px;background:var(--s2);border:1px solid var(--bd);border-radius:var(--r2);cursor:pointer;user-select:none" id="startDeloadRowA">
-        <span id="startDeloadChkA" style="width:18px;height:18px;border:2px solid var(--bd);border-radius:5px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:900;color:#fff;background:transparent;transition:.15s"></span>
-        <span style="font-size:12px;font-weight:800;color:var(--t2)">🌿 דילואד</span>
-      </div>
-      <div onclick="toggleStartDeload('B')" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:7px;background:var(--s2);border:1px solid var(--bd);border-radius:var(--r2);cursor:pointer;user-select:none" id="startDeloadRowB">
-        <span id="startDeloadChkB" style="width:18px;height:18px;border:2px solid var(--bd);border-radius:5px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:900;color:#fff;background:transparent;transition:.15s"></span>
-        <span style="font-size:12px;font-weight:800;color:var(--t2)">🌿 דילואד</span>
-      </div>
-    </div>
-    <div style="display:flex;gap:8px;margin-bottom:10px">
-      <button class="btn" onclick="beginWkt('A')" style="flex:1;font-size:18px;padding:16px">A<br><span style="font-size:11px;font-weight:400">עליון</span></button>
-      <button class="btn" onclick="beginWkt('B')" style="flex:1;font-size:18px;padding:16px;background:var(--s2);border:2px solid var(--bd);color:var(--tx)">B<br><span style="font-size:11px;font-weight:400">תחתון</span></button>
-    </div>
+    <div id="startPlans" style="margin-bottom:10px"></div>
   </div>
 </div>
 <!-- CHANGE EXERCISE OVERLAY --><!-- CHANGE EXERCISE OVERLAY -->
@@ -468,9 +487,7 @@ canvas{width:100%;border-radius:var(--r);background:var(--s1);display:block}
   </div>
   <!-- WORKOUT -->
   <div id="vW">
-    <div class="tabs">
-      <div class="tab on" id="tA" onclick="setWkt('A')"><big>A</big><small>עליון</small></div>
-      <div class="tab"    id="tB" onclick="setWkt('B')"><big>B</big><small>תחתון</small></div>
+    <div class="tabs" id="wktTabs">
     </div>
     <div id="exList"></div>
     <button id="finBtn" onclick="finWkt()">✅ סיים אימון ושמור</button>
@@ -501,10 +518,7 @@ canvas{width:100%;border-radius:var(--r);background:var(--s1);display:block}
     <div class="chips" id="chips"></div>
     <canvas id="pgc" height="220"></canvas>
     <div id="prbox" style="margin-top:10px"></div>
-    <div style="font-size:10px;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.8px;margin:18px 0 8px">נפח אימון A (ק"ג בפועל)</div>
-    <canvas id="volcA" height="160"></canvas>
-    <div style="font-size:10px;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.8px;margin:18px 0 8px">נפח אימון B (ק"ג בפועל)</div>
-    <canvas id="volcB" height="160"></canvas>
+    <div id="volCharts"></div>
     <div style="font-size:10px;color:var(--t3);margin-top:6px;text-align:center">משקל × חזרות · החלקה ימינה = אחורה בזמן</div>
 
     <div style="font-size:10px;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.8px;margin:20px 0 8px">עקביות 30 יום</div>
@@ -546,14 +560,19 @@ canvas{width:100%;border-radius:var(--r);background:var(--s1);display:block}
 
   <!-- EDIT PLANS -->
   <div class="view" id="vE">
-    <div class="vtitle">📝 עריכת תוכניות</div>
-    <div class="tabs">
-      <div class="tab on" id="eA" onclick="setEditWkt('A')"><big>A</big><small>עליון</small></div>
-      <div class="tab"    id="eB" onclick="setEditWkt('B')"><big>B</big><small>תחתון</small></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+      <div class="vtitle" style="margin:0">📝 עריכת תוכניות</div>
+      <div style="display:flex;gap:6px;flex:none">
+        <button onclick="tapFlash(this,renamePlan)" title="שנה שם" style="padding:7px 10px;border-radius:10px;background:var(--s2);border:1px solid var(--bd);color:var(--t2);cursor:pointer;font-size:12px">✏️</button>
+        <button onclick="tapFlash(this,deletePlan)" title="מחק תוכנית" style="padding:7px 10px;border-radius:10px;background:var(--s2);border:1px solid var(--bd);color:#d97070;cursor:pointer;font-size:12px">🗑</button>
+        <button onclick="tapFlash(this,openPdfDialog)" style="padding:7px 12px;border-radius:10px;background:var(--s2);border:1px solid var(--bd);color:var(--t2);cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap">📄 PDF</button>
+      </div>
+    </div>
+    <div class="tabs" id="editTabs">
     </div>
     <div id="editExList"></div>
     <div class="sc" style="margin-top:16px"><div class="st">הוסף תרגיל</div>
-      <select class="inp" id="aWkt2"><option value="A">אימון A — עליון</option><option value="B">אימון B — תחתון</option></select>
+      <select class="inp" id="aWkt2"></select>
       <input class="inp" id="aN2" placeholder="שם התרגיל"/>
       <select class="inp" id="aT2">
         <option value="kg">🏋️ משקל + חזרות</option>
@@ -675,21 +694,40 @@ function loadAll(){
   sessions = ld('s', []);
   curSess  = ld('c', null);
   var exA=ld('exA',null), exB=ld('exB',null);
-  if(exA&&exA.length) WKT.A.ex=exA;
-  if(exB&&exB.length) WKT.B.ex=exB;
+  if(exA&&exA.length&&WKT.A) WKT.A.ex=exA;
+  if(exB&&exB.length&&WKT.B) WKT.B.ex=exB;
   if(!exA&&!exB) ld('ex',[]).forEach(e=>{ if(WKT[e._k]) WKT[e._k].ex.push(e) });
+  // fix24: תוכניות נוספות (C, D, E...) ומחיקת תוכניות — נטענות ממטא-דאטה
+  var meta = ld('planMeta', null);
+  if(meta && meta.length){
+    Object.keys(WKT).forEach(function(k){ if(!meta.some(function(m){return m.k===k;})) delete WKT[k]; });
+    meta.forEach(function(m){
+      if(!WKT[m.k]) WKT[m.k] = { name:m.name, ex: ld('ex_'+m.k, []) };
+      else { WKT[m.k].name = m.name; if(m.k!=='A'&&m.k!=='B') WKT[m.k].ex = ld('ex_'+m.k, WKT[m.k].ex); }
+    });
+  }
+  if(!WKT[curWkt]) curWkt = planKeys()[0] || 'A';
+  if(!WKT[curEditWkt]) curEditWkt = planKeys()[0] || 'A';
   try{ cleanLegacyRatios(); }catch(e){ console.warn('cleanup:', e); }
 }
 function saveP(){ sv('p',P) }
 function saveW(){ sv('w',wLog) }
 function saveS(){ sv('s',sessions) }
 function saveC(){ curSess?sv('c',curSess):localStorage.removeItem('c') }
+function planKeys(){ return Object.keys(WKT); }
+function savePlanMeta(){
+  sv('planMeta', planKeys().map(function(k){ return {k:k, name:WKT[k].name}; }));
+}
 function saveEx(){
-  sv('exA', WKT.A.ex);
-  sv('exB', WKT.B.ex);
+  planKeys().forEach(function(k){
+    if(k==='A') sv('exA', WKT.A.ex);
+    else if(k==='B') sv('exB', WKT.B.ex);
+    else sv('ex_'+k, WKT[k].ex);
+  });
+  savePlanMeta();
   var reg=ld('exNameReg',{}); allEx().forEach(function(e){reg[e.id]=e.n;}); sv('exNameReg',reg);
   const cx=[];
-  ['A','B'].forEach(k=>WKT[k].ex.forEach(e=>{ if(e._c) cx.push(e) }));
+  planKeys().forEach(k=>WKT[k].ex.forEach(e=>{ if(e._c) cx.push(e) }));
   sv('ex',cx);
 }
 
@@ -856,7 +894,7 @@ function preDeloadBest(id, wkt, variant, type, beforeIdx){
   }
   return null;
 }
-function allEx(){ return [...WKT.A.ex,...WKT.B.ex] }
+function allEx(){ var r=[]; Object.keys(WKT).forEach(function(k){ r=r.concat(WKT[k].ex||[]); }); return r; }
 
 // ══════════════════════════════════════════════════════
 // VALID MUSCLES + MAPPING SYSTEM
@@ -1148,8 +1186,7 @@ function getExName(id){
       var reg = ld('exNameReg', {});
       if(reg[id] && reg[id] !== id) return reg[id];
       
-      var aEx = WKT.A.ex.filter(function(x){return x.id===id})[0]; if(aEx) return aEx.n;
-      var bEx = WKT.B.ex.filter(function(x){return x.id===id})[0]; if(bEx) return bEx.n;
+      var pEx = allEx().filter(function(x){return x.id===id})[0]; if(pEx) return pEx.n;
       
       for(var i=sessions.length-1; i>=0; i--) {
           if(sessions[i].exNames && sessions[i].exNames[id] && sessions[i].exNames[id] !== id) {
@@ -1596,6 +1633,21 @@ function renderStatsBar(){
 // לא נוגע באף אימון; הספירה מתחילה מחדש ביום ראשון שאחרי סוף השבוע הזה.
 // fix15: חלונות אישור וקלט מעוצבים במקום confirm/prompt של הדפדפן
 var _cfmCb = null;
+// fix24: חלון קלט טקסט מעוצב
+var _txtCb = null;
+function askText(title, initial, onOk){
+  _txtCb = onOk;
+  if($('txtTitle')) $('txtTitle').textContent = title;
+  if($('txtInp')) $('txtInp').value = initial||'';
+  openOvl('txtOvl');
+}
+function txtConfirm(){
+  var v=(($('txtInp')||{}).value||'').trim();
+  if(!v){ toast('נדרש ערך'); return; }
+  closeOvl('txtOvl');
+  var cb=_txtCb; _txtCb=null;
+  if(cb) cb(v);
+}
 function askConfirm(msg, onYes, okLabel){
   _cfmCb = onYes;
   if($('cfmTxt')) $('cfmTxt').textContent = msg;
@@ -1817,7 +1869,7 @@ function drawInsights(){
 
       // ── לשיפור: תרגילים שמדולגים ברוב האימונים
       var skipped=[];
-      ['A','B'].forEach(function(wkt){
+      planKeys().forEach(function(wkt){
           var planSess=monthSess.filter(function(s){return s.wkt===wkt && !s.deload;});
           if(planSess.length<3) return;
           vEx.filter(function(e){return e.id.charAt(0)===wkt;}).forEach(function(ex){
@@ -2594,7 +2646,24 @@ function drawChart(){
 
 // fix13: גרף נפח נפרד לכל סוג אימון (A / B) — כל אחד עם ציר וגלילה משלו
 function drawVolChart(wkt){
-  if(!wkt){ drawVolChart('A'); drawVolChart('B'); return; }
+  if(!wkt){
+    // fix24: גרף לכל תוכנית קיימת, וגם לסוגי אימון היסטוריים שנמחקו
+    var host=$('volCharts');
+    var keys=planKeys().slice();
+    sessions.forEach(function(s){ if(s.wkt && keys.indexOf(s.wkt)<0) keys.push(s.wkt); });
+    if(host){
+      var need = keys.filter(function(k){ return !$('volc'+k); }).length>0 || host.children.length!==keys.length;
+      if(need){
+        host.innerHTML = keys.map(function(k){
+          var nm = WKT[k] ? (WKT[k].name||'') : 'הופסק';
+          return '<div style="font-size:10px;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.8px;margin:18px 0 8px">נפח אימון '+k+(nm?' — '+nm:'')+' (ק"ג בפועל)</div>'
+            +'<canvas id="volc'+k+'" height="160"></canvas>';
+        }).join('');
+      }
+    }
+    keys.forEach(function(k){ drawVolChart(k); });
+    return;
+  }
   var canvas=$('volc'+wkt); if(!canvas) return;
   var ctx=canvas.getContext('2d');
   var list=sessions.filter(function(s){ return (s.wkt||'')===wkt; });
@@ -3056,7 +3125,7 @@ function doDelEx(){
     return;
   }
   doDelEx._a=false;
-  ['A','B'].forEach(function(k){ WKT[k].ex=WKT[k].ex.filter(function(e){return e.id!==id}); });
+  planKeys().forEach(function(k){ WKT[k].ex=WKT[k].ex.filter(function(e){return e.id!==id}); });
   if(curSess&&curSess.sets[id]) delete curSess.sets[id];
   saveEx(); saveC(); closeOvl('chgOvl'); renderWkt();
   if(document.getElementById('editExList')) renderEdit();
@@ -3093,7 +3162,7 @@ function saveR(id){
 function autoExport(label){
   var now=new Date();
   var dateStr=now.toLocaleDateString('he-IL',{year:'numeric',month:'2-digit',day:'2-digit'}).replace(/\//g,'-');
-  var blob=new Blob([JSON.stringify({P:P,wLog:wLog,sessions:sessions,exA:WKT.A.ex,exB:WKT.B.ex,bridges:getBridges(),decisions:getDecisions(),exNameReg:ld('exNameReg',{}),exMuscleReg:ld('exMuscleReg',{}),muscleMap:getMuscleMap(),deloadReset:ld('deloadReset',0),v:4},null,2)],{type:'application/json'});
+  var blob=new Blob([JSON.stringify({P:P,wLog:wLog,sessions:sessions,exA:(WKT.A?WKT.A.ex:[]),exB:(WKT.B?WKT.B.ex:[]),plans:planKeys().map(function(k){return {k:k,name:WKT[k].name,ex:WKT[k].ex};}),bridges:getBridges(),decisions:getDecisions(),exNameReg:ld('exNameReg',{}),exMuscleReg:ld('exMuscleReg',{}),muscleMap:getMuscleMap(),deloadReset:ld('deloadReset',0),v:4},null,2)],{type:'application/json'});
   var a=document.createElement('a');
   a.href=URL.createObjectURL(blob);
   a.download='gymlog_'+dateStr+(label?'_'+label:'')+'.json';
@@ -3151,6 +3220,20 @@ function showStartScreen(){
     $('lastWktInfo').textContent='ברוך הבא! זה האימון הראשון שלך 🎉';
   }
   startDeloadPending = null;
+  // fix24: כפתור לכל תוכנית קיימת, עם תיבת דילואד משלה
+  var box=$('startPlans');
+  if(box){
+    box.innerHTML = planKeys().map(function(k,i){
+      return '<div style="display:flex;gap:8px;align-items:stretch;margin-bottom:8px">'
+        +'<div onclick="toggleStartDeload(\''+k+'\')" id="startDeloadRow'+k+'" style="flex:none;width:96px;display:flex;align-items:center;justify-content:center;gap:5px;padding:7px;background:var(--s2);border:1px solid var(--bd);border-radius:var(--r2);cursor:pointer;user-select:none">'
+        +'<span id="startDeloadChk'+k+'" style="width:16px;height:16px;border:2px solid var(--bd);border-radius:5px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;color:#fff;background:transparent;transition:.15s"></span>'
+        +'<span style="font-size:11px;font-weight:800;color:var(--t2)">🌿</span></div>'
+        +'<button class="btn" onclick="beginWkt(\''+k+'\')" style="flex:1;font-size:17px;padding:13px'
+        +(i>0?';background:var(--s2);border:2px solid var(--bd);color:var(--tx)':'')+'">'
+        +k+' <span style="font-size:11px;font-weight:400">'+(WKT[k].name||'')+'</span></button>'
+        +'</div>';
+    }).join('');
+  }
   updStartDeloadChk();
   openOvl('startOvl');
 }
@@ -3281,11 +3364,12 @@ function refreshHdr(){
 }
 
 function setWkt(k){ curWkt=k; updTabs(); renderWkt() }
+// fix24: טאבים נבנים דינמית מרשימת התוכניות
 function updTabs(){
-  ['A','B'].forEach(k=>{
-    var t = $('t'+k);
-    if(t) t.className = 'tab'+(curWkt===k?' on':'');
-  });
+  var box=$('wktTabs'); if(!box) return;
+  box.innerHTML = planKeys().map(function(k){
+    return '<div class="tab'+(curWkt===k?' on':'')+'" onclick="setWkt(\''+k+'\')"><big>'+k+'</big><small>'+(WKT[k].name||'')+'</small></div>';
+  }).join('');
 }
 
 // fix21: בניית שורת סט בודדת — משמשת גם לתרגיל האב וגם לסופרסט המקוננן
@@ -3436,7 +3520,7 @@ function applyDeloadVisual(){
 
 var startDeloadPending = null; // null | 'A' | 'B'
 function updStartDeloadChk(){
-  ['A','B'].forEach(function(k){
+  planKeys().forEach(function(k){
     var chk = $('startDeloadChk'+k);
     var on = startDeloadPending === k;
     if(chk){
@@ -3521,11 +3605,165 @@ function renderHome(){
   }
 }
 
-function setEditWkt(k){ 
-    curEditWkt=k; 
-    if($('eA')) $('eA').className='tab'+(k==='A'?' on':''); 
-    if($('eB')) $('eB').className='tab'+(k==='B'?' on':''); 
-    renderEdit(); 
+function setEditWkt(k){
+    if(!WKT[k]) k = planKeys()[0];
+    curEditWkt=k;
+    var box=$('editTabs');
+    if(box){
+      var t = planKeys().map(function(x){
+        return '<div class="tab'+(k===x?' on':'')+'" onclick="setEditWkt(\''+x+'\')"><big>'+x+'</big><small>'+(WKT[x].name||'')+'</small></div>';
+      }).join('');
+      if(planKeys().length < 5){
+        t += '<div class="tab" onclick="openNewPlan()" style="max-width:52px;color:var(--acc)"><big>+</big><small>חדש</small></div>';
+      }
+      box.innerHTML = t;
+    }
+    // fix24: רשימת התוכניות בטופס ההוספה מתעדכנת יחד עם הטאבים
+    var sel=$('aWkt2');
+    if(sel){
+      sel.innerHTML = planKeys().map(function(x){
+        return '<option value="'+x+'">אימון '+x+(WKT[x].name?' — '+WKT[x].name:'')+'</option>';
+      }).join('');
+      sel.value = k;
+    }
+    renderEdit();
+}
+
+// fix24: ניהול תוכניות — יצירה, שינוי שם ומחיקה (עד 5 תוכניות)
+function nextPlanKey(){
+  var used = planKeys();
+  for(var i=0;i<26;i++){
+    var k = String.fromCharCode(65+i);
+    if(used.indexOf(k)<0) return k;
+  }
+  return null;
+}
+function openNewPlan(){
+  if(planKeys().length>=5){ toast('מקסימום 5 תוכניות'); return; }
+  var k=nextPlanKey();
+  if($('npKey')) $('npKey').textContent='תסומן כתוכנית '+k;
+  if($('npName')) $('npName').value='';
+  openOvl('newPlanOvl');
+}
+function doNewPlan(){
+  var name=(($('npName')||{}).value||'').trim();
+  if(!name){ toast('יש לציין שם'); return; }
+  if(planKeys().length>=5){ toast('מקסימום 5 תוכניות'); return; }
+  var k=nextPlanKey(); if(!k) return;
+  WKT[k]={ name:name, ex:[] };
+  saveEx();
+  closeOvl('newPlanOvl');
+  setEditWkt(k);
+  try{ updTabs(); }catch(e){}
+  toast('תוכנית '+k+' — "'+name+'" נוצרה');
+}
+function renamePlan(){
+  var k=curEditWkt;
+  askText('שם חדש לתוכנית '+k, WKT[k].name||'', function(v){
+    WKT[k].name=v; saveEx(); setEditWkt(k);
+    try{ updTabs(); }catch(e){}
+    toast('השם עודכן');
+  });
+}
+function deletePlan(){
+  var k=curEditWkt;
+  if(planKeys().length<=1){ toast('חייבת להישאר תוכנית אחת'); return; }
+  var cnt=sessions.filter(function(s){return s.wkt===k;}).length;
+  askConfirm('למחוק את תוכנית '+k+' ("'+(WKT[k].name||'')+'")?'
+    +(cnt?' '+cnt+' אימונים שכבר בוצעו יישארו בהיסטוריה ובגרפים.':''), function(){
+    delete WKT[k];
+    localStorage.removeItem(k==='A'?'exA':(k==='B'?'exB':'ex_'+k));
+    saveEx();
+    var first=planKeys()[0];
+    if(curWkt===k) curWkt=first;
+    setEditWkt(first);
+    try{ updTabs(); renderProg(); }catch(e){}
+    toast('תוכנית '+k+' נמחקה');
+  }, 'מחק');
+}
+
+// fix23: הפקת PDF — מסך הדפסה נקי בעברית, דרך מנוע ההדפסה של המערכת
+function openPdfDialog(){
+  var box=$('pdfOpts'); if(!box) return;
+  var keys=Object.keys(WKT).filter(function(k){ return WKT[k].ex && WKT[k].ex.length; });
+  var h=keys.map(function(k){
+    return '<button class="btn" onclick="makePdf(\''+k+'\')">תוכנית '+k+' <span style="font-size:11px;opacity:.7">('+WKT[k].ex.length+' תרגילים)</span></button>';
+  }).join('');
+  if(keys.length>1){
+    h+='<button class="btn" style="background:var(--s2);border:1px solid var(--acc);color:var(--acc2)" onclick="makePdf(\'ALL\')">כל התוכניות</button>';
+  }
+  box.innerHTML = h || '<div style="color:var(--t3);font-size:12px">אין תוכניות להפקה</div>';
+  openOvl('pdfOvl');
+}
+
+function _pdfPlanHtml(wkt){
+  var arr=WKT[wkt].ex||[];
+  var rows='', n=0;
+  arr.forEach(function(ex,i){
+    if(ex.ss) return;
+    n++;
+    var ssEx=(arr[i+1]&&arr[i+1].ss)?arr[i+1]:null;
+    function cells(e,isSS){
+      var lw=lastW(e.id,wkt);
+      var wTxt = e.t==='body' ? 'משקל גוף' : (e.t==='time' ? '—' : (lw!==null?lw+' ק"ג':(e.w?e.w+' ק"ג':'—')));
+      var rTxt = e.t==='time' ? (e.r||'')+' שנ\'' : (e.r||'');
+      return '<tr'+(isSS?' class="ss"':'')+'>'
+        +'<td class="num">'+(isSS?'🔗':n)+'</td>'
+        +'<td class="nm">'+(isSS?'<span class="sst">סופרסט</span> ':'')+e.n+'</td>'
+        +'<td>'+e.s+'</td><td>'+rTxt+'</td><td>'+wTxt+'</td>'
+        +'<td>'+(isSS?'ללא':(e.rest||0)+' שנ\'')+'</td>'
+        +'<td class="mus">'+(e.muscle||'')+'</td>'
+        +'<td class="blank"></td></tr>';
+    }
+    rows+=cells(ex,false);
+    if(ssEx) rows+=cells(ssEx,true);
+  });
+  return '<h2>תוכנית '+wkt+'</h2>'
+    +'<table><thead><tr><th>#</th><th>תרגיל</th><th>סטים</th><th>חזרות</th><th>משקל אחרון</th><th>מנוחה</th><th>אזור</th><th>ביצוע</th></tr></thead>'
+    +'<tbody>'+rows+'</tbody></table>'
+    +'<div class="sum">'+n+' תרגילים'+(arr.length>n?' · '+(arr.length-n)+' סופרסטים':'')+'</div>';
+}
+
+function makePdf(which){
+  closeOvl('pdfOvl');
+  var keys = which==='ALL' ? Object.keys(WKT).filter(function(k){return WKT[k].ex&&WKT[k].ex.length;}) : [which];
+  var name = (P&&P.name)?P.name:'';
+  var today = new Date().toLocaleDateString('he-IL',{day:'2-digit',month:'2-digit',year:'numeric'});
+  var body = keys.map(function(k,i){
+    return '<section'+(i>0?' class="pb"':'')+'>'+_pdfPlanHtml(k)+'</section>';
+  }).join('');
+  var css = '@page{size:A4;margin:14mm}'
+    +'*{box-sizing:border-box}'
+    +'body{font-family:Arial,"Segoe UI",sans-serif;direction:rtl;color:#111;margin:0}'
+    +'h1{font-size:20px;margin:0 0 2px}'
+    +'h2{font-size:15px;margin:16px 0 8px;padding-bottom:4px;border-bottom:2px solid #333}'
+    +'.hdr{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #111;padding-bottom:8px;margin-bottom:6px}'
+    +'.meta{font-size:11px;color:#555;text-align:left;line-height:1.6}'
+    +'table{width:100%;border-collapse:collapse;font-size:11px}'
+    +'th{background:#eee;border:1px solid #999;padding:5px 4px;font-weight:700;text-align:center}'
+    +'td{border:1px solid #bbb;padding:5px 4px;text-align:center}'
+    +'td.nm{text-align:right;font-weight:700;font-size:12px}'
+    +'td.num{width:22px;color:#666}'
+    +'td.mus{font-size:10px;color:#555}'
+    +'td.blank{width:60px;background:#fafafa}'
+    +'tr.ss td{background:#fdf0f0;font-size:10px}'
+    +'tr.ss td.nm{font-weight:600;padding-right:16px}'
+    +'.sst{color:#b04040;font-weight:700;font-size:9px}'
+    +'.sum{font-size:10px;color:#666;margin-top:5px}'
+    +'.pb{page-break-before:always}'
+    +'.foot{margin-top:18px;font-size:9px;color:#888;text-align:center;border-top:1px solid #ddd;padding-top:6px}'
+    +'@media print{.noprint{display:none}}';
+  var html = '<!DOCTYPE html><html lang="he" dir="rtl"><head><meta charset="utf-8">'
+    +'<title>GymLog — תוכנית '+(which==='ALL'?'מלאה':which)+'</title><style>'+css+'</style></head><body>'
+    +'<div class="hdr"><div><h1>תוכנית אימונים</h1>'+(name?'<div style="font-size:12px;color:#444">'+name+'</div>':'')+'</div>'
+    +'<div class="meta">GymLog<br>הופק: '+today+'</div></div>'
+    +body
+    +'<div class="foot">משקל אחרון = הסט הכבד ביותר שבוצע באימון האחרון · עמודת "ביצוע" למילוי ידני</div>'
+    +'<script>window.onload=function(){setTimeout(function(){window.print();},250);};<\/script>'
+    +'</body></html>';
+  var w=window.open('','_blank');
+  if(!w){ toast('חסום ע"י הדפדפן — אפשר חלונות קופצים'); return; }
+  w.document.write(html); w.document.close();
 }
 
 function renderEdit(){
@@ -3777,8 +4015,18 @@ function doImport(e){
       if(!d.P||!d.wLog||!d.sessions) throw new Error('missing core keys');
     }catch(err){ toast('❌ קובץ לא תקין'); console.error('Import parse failed:',err); return; }
     P=d.P; wLog=d.wLog; sessions=d.sessions;
-    if(d.exA&&d.exA.length){ WKT.A.ex=d.exA; sv('exA',d.exA); }
-    if(d.exB&&d.exB.length){ WKT.B.ex=d.exB; sv('exB',d.exB); }
+    // fix24: ייבוא כל התוכניות (כולל C/D/E ומחיקות); נפילה לאחור ל-exA/exB בגיבוי ישן
+    if(d.plans && d.plans.length){
+      Object.keys(WKT).forEach(function(k){ delete WKT[k]; });
+      d.plans.forEach(function(p){ WKT[p.k]={ name:p.name||'', ex:p.ex||[] }; });
+      if(!WKT[curWkt]) curWkt=planKeys()[0];
+      if(!WKT[curEditWkt]) curEditWkt=planKeys()[0];
+      saveEx();
+    } else {
+      if(d.exA&&d.exA.length){ if(!WKT.A) WKT.A={name:'עליון',ex:[]}; WKT.A.ex=d.exA; sv('exA',d.exA); }
+      if(d.exB&&d.exB.length){ if(!WKT.B) WKT.B={name:'תחתון',ex:[]}; WKT.B.ex=d.exB; sv('exB',d.exB); }
+      savePlanMeta();
+    }
     if(d.bridges){ var cb=getBridges(); Object.assign(cb,d.bridges); saveBridges(cb); }
     if(d.decisions){ var cd=getDecisions(); Object.assign(cd,d.decisions); saveDecisions(cd); }
     if(d.exNameReg){ var cn=ld('exNameReg',{}); Object.assign(cn,d.exNameReg); sv('exNameReg',cn); }
