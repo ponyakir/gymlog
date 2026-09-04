@@ -555,7 +555,7 @@ canvas{width:100%;border-radius:var(--r);background:var(--s1);display:block}
         <span id="pgM2" style="padding:4px 10px;border-radius:16px;color:var(--t3)">אחרון</span>
       </div>
     </div>
-    <div id="statsBar" style="display:flex;gap:10px;margin-bottom:12px"></div>
+    <div id="statsBar" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px"></div>
     <div class="chips" id="chips"></div>
     <canvas id="pgc" height="220"></canvas>
     <div id="prbox" style="margin-top:10px"></div>
@@ -1670,16 +1670,20 @@ function calcDeloadStatus(){
 function renderStatsBar(){
   var box = $('statsBar'); if(!box) return;
   var total=sessions.length;
-  var wA=sessions.filter(function(s){return s.wkt==='A'}).length;
-  var wB=sessions.filter(function(s){return s.wkt==='B'}).length;
   var activeMonths=calcActiveMonths();
   refreshStatsTarget();
+  // fix31: כרטיס לכל סוג אימון קיים, כולל סוגים שכבר לא בתוכנית
+  var wktKeys=planKeys().slice();
+  sessions.forEach(function(s){ if(s.wkt && wktKeys.indexOf(s.wkt)<0) wktKeys.push(s.wkt); });
+  var icons={A:'🅰️',B:'🅱️',C:'🅲',D:'🅳',E:'🅴'};
   var stats=[
-    {icon:'🏋️',label:'סה"כ אימונים',val:String(total),color:'var(--acc)'},
-    {icon:'🅰️',label:'אימוני A',val:String(wA),color:'var(--acc)'},
-    {icon:'🅱️',label:'אימוני B',val:String(wB),color:'var(--acc)'},
-    {icon:'📅',label:'חודשים פעיל',val:activeMonths,color:'var(--acc)',act:true}
+    {icon:'🏋️',label:'סה"כ אימונים',val:String(total),color:'var(--acc)'}
   ];
+  wktKeys.forEach(function(k){
+    var n=sessions.filter(function(s){return s.wkt===k}).length;
+    stats.push({icon:icons[k]||('🔤'), label:'אימוני '+k, val:String(n), color:'var(--acc)'});
+  });
+  stats.push({icon:'📅',label:'חודשים פעיל',val:activeMonths,color:'var(--acc)',act:true});
   var dl=calcDeloadStatus();
   if(dl){
     stats.push({icon:dl.light, label:'שבועות מדילואד'+(dl.fromFirst?' *':''), val:String(dl.wInt), color:dl.color, deloadBar:true, posPct:dl.posPct});
@@ -1696,7 +1700,7 @@ function renderStatsBar(){
     var rstBtn = s.deloadBar
       ? `<button onclick="resetDeload()" style="margin-top:7px;width:100%;padding:5px 2px;border-radius:8px;background:var(--s2);border:1px solid var(--bd);color:var(--t2);cursor:pointer;font-size:10px;font-weight:700;white-space:nowrap">🌿 אפס דילואד</button>`
       : '';
-    return `<div style="flex:1;min-width:60px;background:var(--s1);border:1px solid ${s.deloadBar?s.color:'var(--bd)'};border-radius:12px;padding:10px 6px;text-align:center">
+    return `<div style="flex:1 1 68px;min-width:68px;background:var(--s1);border:1px solid ${s.deloadBar?s.color:'var(--bd)'};border-radius:12px;padding:10px 6px;text-align:center">
       <div style="font-size:18px">${s.icon}</div>
       <div ${s.deloadBar?'onclick="tapFlash(this.parentNode,openDeloadInfo)" style="cursor:pointer"':(s.act?'onclick="tapFlash(this.parentNode,openActivityMap)" style="cursor:pointer"':'')}>
         <div style="font-size:16px;font-weight:900;color:${s.color};margin:2px 0">${s.val}</div>
@@ -2716,35 +2720,26 @@ function drawChart(){
 
   if(typeof selEx==='string' && selEx.indexOf('__m__')===0){
     var muscleGroup=selEx.slice(5);
-    // fix7: גרף נפח לשריר — ק"ג בפועל כולל מקדם מכונה, באותם כללים כמו הגרף הכללי,
-    // מפוצל לפי יחסי השרירים של כל תרגיל. תרגיל זמן מקבל נתח ממוצע מהאימון.
+    // fix30: מגמת שיאים — ממוצע המשקל הכבד ביותר בכל תרגיל של השריר, לאורך זמן.
+    // עולה = פרוגרסיה בעומס. תרגילי משקל גוף/זמן אינם נמדדים בק"ג ולכן לא נכללים.
     var pts=[];
     sessions.slice().sort(function(a,b){return a.start-b.start;}).forEach(function(s){
-      var bw=bwAt(s.start);
-      var vols={}, timeIds=[], nonSum=0, nonCnt=0;
+      var vals=[];
       Object.keys(s.sets||{}).forEach(function(exId){
         var e=allEx().filter(function(x){return x.id===exId})[0];
         if(!e||hasInvalidMuscle(exId)) return;
-        var done=(s.sets[exId]||[]).filter(function(x){return x.done;});
+        if(exTypeAt(e, s.start)!=='kg') return;
+        var split=resolveMuscleSplit(exId);
+        if(!(split[muscleGroup]>0)) return;
+        var done=(s.sets[exId]||[]).filter(function(x){ return x.done && (parseFloat(x.w)||0)>0; });
         if(!done.length) return;
-        var _t=exTypeAt(e, s.start); // הסוג שהיה תקף ביום האימון
-        if(_t==='time'){ timeIds.push(exId); return; }
-        var v=0;
-        done.forEach(function(st){
-          var reps=parseReps(st.r,e.r), w=parseFloat(st.w)||0;
-          v += _t==='body' ? (bw*0.5+w)*reps : w*reps*exCoefAt(e, s.start);
-        });
-        vols[exId]=v; nonSum+=v; nonCnt++;
+        var mx=Math.max.apply(null, done.map(function(x){ return parseFloat(x.w)||0; }));
+        vals.push(mx*exCoefAt(e, s.start));
       });
-      var share=nonCnt>0?nonSum/nonCnt:0;
-      timeIds.forEach(function(id){ vols[id]=share; });
-      var mv=0;
-      Object.keys(vols).forEach(function(id){
-        var split=resolveMuscleSplit(id);
-        var frac=split[muscleGroup]||0;
-        if(frac>0) mv+=vols[id]*frac;
-      });
-      if(mv>0) pts.push({d:s.start, v:mv});
+      if(vals.length){
+        var avg=vals.reduce(function(a,b){return a+b;},0)/vals.length;
+        pts.push({d:s.start, v:avg, n:vals.length});
+      }
     });
 
     if(pts.length<2){ noData('צריך לפחות 2 אימונים עם '+muscleGroup); return; }
@@ -2752,41 +2747,48 @@ function drawChart(){
 
     var pad={l:46,r:14,t:22,b:28};
     var gW=CW-pad.l-pad.r, gH=CH-pad.t-pad.b;
-    var vals=pts.map(function(p){return p.v;});
-    var mx=Math.max.apply(null,vals), mn=0;
-    var rng=mx-mn||1;
-    var maxIdx=vals.indexOf(mx);
+    var vals2=pts.map(function(p){return p.v;});
+    var mx2=Math.max.apply(null,vals2), mn2=Math.min.apply(null,vals2);
+    var span=mx2-mn2;
+    var lo=Math.max(0, mn2-Math.max(span*0.35, mx2*0.06));
+    var hi=mx2+Math.max(span*0.25, mx2*0.05);
+    var rng=hi-lo||1;
+    var maxIdx=vals2.indexOf(mx2);
     function px2(i){return pad.l+(pts.length>1?i/(pts.length-1)*gW:gW/2);}
-    function py2(v){return pad.t+gH-(v-mn)/rng*gH;}
+    function py2(v){return pad.t+gH-(v-lo)/rng*gH;}
 
     for(var gi=0; gi<=3; gi++){
-      var gv=mx-(rng/3)*gi, gy=py2(gv);
+      var gv=hi-(rng/3)*gi, gy=py2(gv);
       ctx.strokeStyle='rgba(255,255,255,.05)'; ctx.lineWidth=1;
       ctx.beginPath(); ctx.moveTo(pad.l,gy); ctx.lineTo(CW-pad.r,gy); ctx.stroke();
       ctx.fillStyle='#555'; ctx.font='9px Heebo'; ctx.textAlign='right';
-      ctx.fillText(Math.round(gv).toLocaleString(),pad.l-4,gy+3);
+      ctx.fillText(Math.round(gv*10)/10,pad.l-4,gy+3);
     }
 
     ctx.beginPath(); ctx.moveTo(px2(0),py2(pts[0].v));
     for(var ii=1;ii<pts.length;ii++) ctx.lineTo(px2(ii),py2(pts[ii].v));
-    ctx.lineTo(px2(pts.length-1),py2(0)); ctx.lineTo(px2(0),py2(0)); ctx.closePath();
+    ctx.lineTo(px2(pts.length-1),py2(lo)); ctx.lineTo(px2(0),py2(lo)); ctx.closePath();
     var gr2=ctx.createLinearGradient(0,pad.t,0,pad.t+gH);
-    gr2.addColorStop(0,'rgba(201,168,76,.3)'); gr2.addColorStop(1,'rgba(201,168,76,0)');
+    gr2.addColorStop(0,'rgba(201,168,76,.28)'); gr2.addColorStop(1,'rgba(201,168,76,0)');
     ctx.fillStyle=gr2; ctx.fill();
 
     ctx.beginPath(); ctx.moveTo(px2(0),py2(pts[0].v));
     for(var ii=1;ii<pts.length;ii++) ctx.lineTo(px2(ii),py2(pts[ii].v));
-    ctx.strokeStyle='#c9a84c'; ctx.lineWidth=2; ctx.stroke();
+    ctx.strokeStyle='#c9a84c'; ctx.lineWidth=2.5; ctx.stroke();
 
     pts.forEach(function(p,ii){
-      var x=px2(ii), y=py2(p.v);
-      ctx.beginPath(); ctx.arc(x,y,ii===maxIdx?4:3,0,Math.PI*2);
+      var xx=px2(ii), yy=py2(p.v);
+      ctx.beginPath(); ctx.arc(xx,yy,ii===maxIdx?4.5:3,0,Math.PI*2);
       ctx.fillStyle=ii===maxIdx?'#e8c96a':'#c9a84c'; ctx.fill();
-      if(ii===maxIdx){
-        ctx.fillStyle='#e8c96a'; ctx.font='bold 9px Heebo'; ctx.textAlign='center';
-        ctx.fillText(Math.round(p.v).toLocaleString(), x, Math.max(10,y-8));
-      }
     });
+    // ערך אחרון מוצג תמיד
+    var lastI=pts.length-1;
+    ctx.fillStyle='#e8c96a'; ctx.font='bold 9px Heebo'; ctx.textAlign='center';
+    ctx.fillText(Math.round(pts[lastI].v*10)/10, px2(lastI), Math.max(10,py2(pts[lastI].v)-9));
+    if(maxIdx!==lastI){
+      ctx.fillStyle='#c9a84c';
+      ctx.fillText(Math.round(mx2*10)/10, px2(maxIdx), Math.max(10,py2(mx2)-9));
+    }
 
     ctx.fillStyle='#555'; ctx.font='9px Heebo'; ctx.textAlign='center';
     [0,Math.floor((pts.length-1)/2),pts.length-1].forEach(function(i){
@@ -2794,15 +2796,20 @@ function drawChart(){
     });
 
     ctx.fillStyle='#f0eeee'; ctx.font='bold 11px Heebo'; ctx.textAlign='center';
-    ctx.fillText(muscleGroup+' — נפח (ק"ג בפועל)',CW/2,13);
+    ctx.fillText(muscleGroup+' — מגמת עומס (ק"ג ממוצע)',CW/2,13);
 
-    var lastV=pts[pts.length-1].v, prevV=pts.length>1?pts[pts.length-2].v:0;
+    var lastV=pts[lastI].v, prevV=pts.length>1?pts[lastI-1].v:0;
+    var firstV=pts[0].v;
+    var trend = lastV>firstV*1.02 ? {t:'📈 מגמת עלייה',c:'var(--ok2)'}
+              : lastV<firstV*0.98 ? {t:'📉 מגמת ירידה',c:'var(--red)'}
+              : {t:'➡️ יציב',c:'var(--t2)'};
     var diffTxt = prevV>0 ? ((lastV>=prevV?'+':'')+Math.round((lastV-prevV)/prevV*100)+'% מהאימון הקודם') : '';
     $('prbox').innerHTML='<div style="background:var(--s1);border:1px solid var(--bd);border-radius:10px;padding:10px 14px;text-align:center">'+
-      '<span style="font-size:12px;color:var(--t2)">נפח אחרון ב'+muscleGroup+': </span>'+
-      '<span style="font-size:18px;font-weight:900;color:var(--acc2)">'+Math.round(lastV).toLocaleString()+' ק"ג</span>'+
+      '<span style="font-size:12px;color:var(--t2)">עומס ממוצע ב'+muscleGroup+': </span>'+
+      '<span style="font-size:18px;font-weight:900;color:var(--acc2)">'+(Math.round(lastV*10)/10)+' ק"ג</span>'+
       (diffTxt?'<div style="font-size:11px;color:'+(lastV>=prevV?'var(--ok2)':'var(--red)')+';margin-top:3px">'+diffTxt+'</div>':'')+
-      '<div style="font-size:10px;color:var(--t3);margin-top:3px">שיא: '+Math.round(mx).toLocaleString()+' ק"ג</div></div>';
+      '<div style="font-size:11px;font-weight:700;color:'+trend.c+';margin-top:4px">'+trend.t+'</div>'+
+      '<div style="font-size:10px;color:var(--t3);margin-top:3px">שיא: '+(Math.round(mx2*10)/10)+' ק"ג · ממוצע המשקל הכבד ביותר בכל תרגיל</div></div>';
     return;
   }
 
@@ -2905,7 +2912,19 @@ function drawVolChart(wkt){
   }
   var canvas=$('volc'+wkt); if(!canvas) return;
   var ctx=canvas.getContext('2d');
-  var list=sessions.filter(function(s){ return (s.wkt||'')===wkt; });
+  // fix30: שני אימונים מאותו סוג באותו יום מוצגים כעמודה אחת (הנתונים עצמם לא משתנים)
+  var list=(function(){
+    var byDay={}, order=[];
+    sessions.filter(function(s){ return (s.wkt||'')===wkt; })
+      .sort(function(a,b){ return a.start-b.start; })
+      .forEach(function(s){
+        var d=new Date(s.start); d.setHours(0,0,0,0);
+        var key=d.getTime();
+        if(!byDay[key]){ byDay[key]={ start:s.start, wkt:s.wkt, deload:!!s.deload, _parts:[s] }; order.push(key); }
+        else { byDay[key]._parts.push(s); byDay[key].deload = byDay[key].deload || !!s.deload; }
+      });
+    return order.map(function(k){ return byDay[k]; });
+  })();
   var dpr=window.devicePixelRatio||1;
   canvas.width=canvas.offsetWidth*dpr; canvas.height=160*dpr;
   ctx.scale(dpr,dpr);
@@ -2951,6 +2970,11 @@ function drawVolChart(wkt){
   }
 
   function sessVol(s, VM){
+    // אימון מאוחד: סכימת כל האימונים של אותו יום
+    if(s._parts && s._parts.length>1){
+      return s._parts.reduce(function(a,p){ return a + sessVol(p, VM); }, 0);
+    }
+    if(s._parts && s._parts.length===1) s = s._parts[0];
     var sum = 0, timeCnt = 0, nonTimeCnt = 0;
     var bw = bwAt(s.start);
     Object.keys(s.sets||{}).forEach(function(exId){
@@ -3910,35 +3934,27 @@ function renderWeeklyVolume(){
   function clr(v){ return v<10 ? '#eab308' : (v<=20 ? '#16a34a' : '#ef4444'); }
   function r1(v){ return Math.round(v*10)/10; }
 
-  var freqTxt = planKeys().map(function(k){
-    return k+'×'+(WKT[k].freq||1);
-  }).join(' · ');
-  var realTot = planKeys().reduce(function(a,k){ return a+actualFreq(k); },0);
-
   var body=names.map(function(m){
     var p=plan[m], a=real[m]||0;
-    return '<div style="margin-bottom:8px">'
+    return '<div style="margin-bottom:9px">'
       +'<div style="display:flex;align-items:center;gap:8px">'
         +'<div style="width:70px;font-size:11px;color:var(--t2);flex:none">'+m+'</div>'
         +'<div style="flex:1">'
-          +'<div style="height:7px;background:var(--s2);border-radius:4px;overflow:hidden;margin-bottom:2px">'
-            +'<div style="height:100%;width:'+Math.round(p/mx*100)+'%;background:'+clr(p)+';border-radius:4px"></div></div>'
-          +'<div style="height:4px;background:var(--s2);border-radius:3px;overflow:hidden">'
-            +'<div style="height:100%;width:'+Math.round(a/mx*100)+'%;background:'+clr(a)+';opacity:.5;border-radius:3px"></div></div>'
+          +'<div style="height:11px;background:var(--s2);border-radius:6px;overflow:hidden;margin-bottom:3px">'
+            +'<div style="height:100%;width:'+Math.round(p/mx*100)+'%;background:'+clr(p)+';border-radius:6px"></div></div>'
+          +'<div style="height:8px;background:var(--s2);border-radius:5px;overflow:hidden">'
+            +'<div style="height:100%;width:'+Math.round(a/mx*100)+'%;background:'+clr(a)+';opacity:.55;border-radius:5px"></div></div>'
         +'</div>'
-        +'<div style="width:52px;text-align:end;flex:none;line-height:1.25">'
-          +'<div style="font-size:11px;font-weight:800;color:'+clr(p)+'">'+r1(p)+'</div>'
-          +'<div style="font-size:9px;color:var(--t3)">'+r1(a)+'</div></div>'
+        +'<div style="width:46px;text-align:end;flex:none;line-height:1.3">'
+          +'<div style="font-size:12px;font-weight:800;color:'+clr(p)+'">'+r1(p)+'</div>'
+          +'<div style="font-size:10px;color:var(--t3)">'+r1(a)+'</div></div>'
       +'</div></div>';
   }).join('');
 
   box.innerHTML='<div style="background:var(--s1);border:1px solid var(--bd);border-radius:16px;padding:18px 16px">'
-    +'<div style="font-size:11px;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">סטים שבועיים לשריר</div>'
-    +'<div style="font-size:10px;color:var(--t3);margin-bottom:4px">מתוכנן: '+freqTxt+' בשבוע</div>'
-    +'<div style="font-size:10px;color:var(--t3);margin-bottom:12px">בפועל: '+(Math.round(realTot*10)/10)+' אימונים בשבוע (ממוצע 4 שבועות)</div>'
+    +'<div style="font-size:11px;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">סטים שבועיים לשריר</div>'
     +body
-    +'<div style="font-size:9px;color:var(--t3);margin-top:8px;text-align:center;line-height:1.7">'
-      +'פס עליון + מספר גדול = מתוכנן · פס תחתון + מספר קטן = בפועל<br>'
+    +'<div style="font-size:9px;color:var(--t3);margin-top:10px;text-align:center">'
       +'🟡 מתחת ל-10 · 🟢 10–20 (טווח יעיל) · 🔴 מעל 20</div>'
     +'</div>';
 }
