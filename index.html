@@ -1658,6 +1658,15 @@ function calcDeloadStatus(){
     var mEnd = weekStartTs(manual) + 7*24*3600*1000; // מוצאי שבת של אותו שבוע
     if(mEnd > anchor){ anchor = mEnd; fromFirst = false; _src = 'manual'; }
   }
+  // איפוס אוטומטי: שבוע קלנדרי שהסתיים עם פחות מ-2 אימונים לא מצטבר כעייפות,
+  // ולכן מאפס את מונה השבועות מדילואד.
+  var autoReset=false;
+  var msW=7*24*3600*1000, curWS=weekStartTs(Date.now());
+  for(var ws=weekStartTs(anchor)+msW; ws<curWS; ws+=msW){
+    var we=ws+msW;
+    var cnt=sessions.filter(function(s){ return s.start>=ws && s.start<we; }).length;
+    if(cnt<2){ anchor=we; fromFirst=false; _src='auto'; autoReset=true; }
+  }
   var weeks=Math.max(0,(Date.now()-anchor)/(7*24*3600*1000));
   var color, light, label;
   if(weeks<6){ color='#16a34a'; light='🟢'; label='בטווח'; }
@@ -1665,7 +1674,7 @@ function calcDeloadStatus(){
   else { color='#ef4444'; light='🔴'; label='דחוף — בצע דילואד'; }
   var posPct=Math.max(0,Math.min(100,(weeks/12)*100));
   return {weeks:weeks, wInt:Math.floor(weeks), color:color, light:light, label:label,
-          fromFirst:fromFirst, posPct:posPct, anchor:anchor, src:_src, manual:manual};
+          fromFirst:fromFirst, posPct:posPct, anchor:anchor, src:_src, manual:manual, autoReset:autoReset};
 }
 function renderStatsBar(){
   var box = $('statsBar'); if(!box) return;
@@ -3906,8 +3915,25 @@ function actualFreq(k){
 // סטים שבועיים לשריר. mode: 'plan' לפי התדירות המתוכננת · 'real' לפי הביצוע בפועל
 function calcWeeklySets(mode){
   var map={};
+  if(mode==='real'){
+    // הסטים שסומנו V בשבוע הקלנדרי הנוכחי בלבד (מתאפס ביום א')
+    var ws=weekStartTs(Date.now()), we=ws+7*24*3600*1000;
+    sessions.filter(function(s){ return s.start>=ws && s.start<we; }).forEach(function(s){
+      Object.keys(s.sets||{}).forEach(function(exId){
+        if(hasInvalidMuscle(exId)) return;
+        var doneCnt=(s.sets[exId]||[]).filter(function(x){ return x.done; }).length;
+        if(!doneCnt) return;
+        var split=resolveMuscleSplit(exId);
+        Object.keys(split).forEach(function(m){
+          if(m==='__DELETED__') return;
+          map[m]=(map[m]||0)+doneCnt*(split[m]||0);
+        });
+      });
+    });
+    return map;
+  }
   planKeys().forEach(function(k){
-    var f = (mode==='real') ? actualFreq(k) : (WKT[k].freq||1);
+    var f = WKT[k].freq||1;
     if(!f) return;
     (WKT[k].ex||[]).forEach(function(ex){
       if(hasInvalidMuscle(ex.id)) return;
@@ -3927,15 +3953,16 @@ function renderWeeklyVolume(){
   var box=$('weeklyVolBox'); if(!box) return;
   var plan=calcWeeklySets('plan'), real=calcWeeklySets('real');
   var names=Object.keys(plan);
+  Object.keys(real).forEach(function(m){ if(names.indexOf(m)<0) names.push(m); });
   if(!names.length){ box.innerHTML=''; return; }
-  names.sort(function(a,b){ return plan[b]-plan[a]; });
-  var mx=Math.max.apply(null, names.map(function(m){ return Math.max(plan[m], real[m]||0); })) || 1;
+  names.sort(function(a,b){ return (plan[b]||0)-(plan[a]||0); });
+  var mx=Math.max.apply(null, names.map(function(m){ return Math.max(plan[m]||0, real[m]||0); })) || 1;
   // 10–20 סטים לשריר בשבוע = טווח יעיל מקובל
   function clr(v){ return v<10 ? '#eab308' : (v<=20 ? '#16a34a' : '#ef4444'); }
   function r1(v){ return Math.round(v*10)/10; }
 
   var body=names.map(function(m){
-    var p=plan[m], a=real[m]||0;
+    var p=plan[m]||0, a=real[m]||0;
     return '<div style="margin-bottom:9px">'
       +'<div style="display:flex;align-items:center;gap:8px">'
         +'<div style="width:70px;font-size:11px;color:var(--t2);flex:none">'+m+'</div>'
@@ -3952,10 +3979,10 @@ function renderWeeklyVolume(){
   }).join('');
 
   box.innerHTML='<div style="background:var(--s1);border:1px solid var(--bd);border-radius:16px;padding:18px 16px">'
-    +'<div style="font-size:11px;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">סטים שבועיים לשריר</div>'
+    +'<div style="font-size:11px;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">סטים שבועיים לשריר · תכנון מול השבוע</div>'
     +body
     +'<div style="font-size:9px;color:var(--t3);margin-top:10px;text-align:center">'
-      +'🟡 מתחת ל-10 · 🟢 10–20 (טווח יעיל) · 🔴 מעל 20</div>'
+      +'פס עליון = תכנון · פס תחתון = בוצע השבוע (מתאפס ביום א\') · 🟡 מתחת ל-10 · 🟢 10–20 · 🔴 מעל 20</div>'
     +'</div>';
 }
 
