@@ -3905,7 +3905,7 @@ function updNavWkt(){
 function navToWkt(){ if(curSess) goTo('W'); }
 
 // fix27: סטים שבועיים לכל שריר — בהנחה שכל התוכניות מבוצעות פעם אחת בשבוע.
-// סט מתחלק בין השרירים של התרגיל לפי יחסי המיפוי (תרגיל ל-2 שרירים = חצי סט לכל אחד).
+// כל סט נספר במלואו לכל שריר שהתרגיל ממופה אליו (תרגיל ל-2 שרירים = סט מלא לכל אחד).
 // תדירות בפועל: כמה פעמים בשבוע בוצעה התוכנית ב-4 השבועות האחרונים
 function actualFreq(k){
   var ms4=28*24*3600*1000, from=Date.now()-ms4;
@@ -3923,10 +3923,9 @@ function calcWeeklySets(mode){
         if(hasInvalidMuscle(exId)) return;
         var doneCnt=(s.sets[exId]||[]).filter(function(x){ return x.done; }).length;
         if(!doneCnt) return;
-        var split=resolveMuscleSplit(exId);
-        Object.keys(split).forEach(function(m){
+        resolveMuscles(exId).forEach(function(m){
           if(m==='__DELETED__') return;
-          map[m]=(map[m]||0)+doneCnt*(split[m]||0);
+          map[m]=(map[m]||0)+doneCnt;
         });
       });
     });
@@ -3939,10 +3938,9 @@ function calcWeeklySets(mode){
       if(hasInvalidMuscle(ex.id)) return;
       var sets=parseInt(ex.s)||0;
       if(!sets) return;
-      var split=resolveMuscleSplit(ex.id);
-      Object.keys(split).forEach(function(m){
+      resolveMuscles(ex.id).forEach(function(m){
         if(m==='__DELETED__') return;
-        map[m]=(map[m]||0)+sets*(split[m]||0)*f;
+        map[m]=(map[m]||0)+sets*f;
       });
     });
   });
