@@ -3832,6 +3832,9 @@ function renderWkt(){
   const hasSess = curSess && curSess.wkt===curWkt;
 
   var _wArr = curWktEx();
+  // fix37: תרגיל שנוסף לתוכנית אחרי פתיחת האימון חייב לקבל מערך סטים כבר כאן,
+  // אחרת הוא מצויר אך לא ניתן לסמן אותו והוא לא נשמר בסשן.
+  if(hasSess) _wArr.forEach(function(ex){ ensureSets(ex.id); });
   _wArr.forEach(function(ex, _wi){
     if(ex.ss) return; // fix21: הסופרסט מוצג בתוך כרטיס האב, לא ככרטיס נפרד
     var ssEx = (_wArr[_wi+1] && _wArr[_wi+1].ss) ? _wArr[_wi+1] : null;
