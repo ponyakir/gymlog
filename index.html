@@ -3214,7 +3214,8 @@ function rAdj(id,i,d){ doRAdj(id,i,d); rTm=setTimeout(function(){rIv=setInterval
 function rEnd(){ clearTimeout(rTm); clearInterval(rIv); rIv=rTm=null }
 function doRAdj(id,i,d){
   if(skipMode) return;
-  var s=curSess.sets[id][i];
+  var a=ensureSets(id); if(!a||!a[i]) return;
+  var s=a[i];
   var cur=parseInt(s.r)||0;
   s.r=String(Math.max(0,cur+d));
   var el=$('ri_'+id+'_'+i); if(el) el.value=s.r;
@@ -3222,15 +3223,33 @@ function doRAdj(id,i,d){
 }
 function adjSt(id,i,d){ doAdj(id,i,d); adjTm=setTimeout(function(){adjIv=setInterval(function(){doAdj(id,i,d)},80)},400) }
 function adjEnd(){ clearTimeout(adjTm); clearInterval(adjIv); adjIv=adjTm=null }
+// fix35: תרגיל שנוסף לתוכנית אחרי שהאימון כבר נפתח (למשל סופרסט) — אין לו מערך סטים בסשן.
+// יוצרים אותו בעצלתיים במקום לקרוס.
+function ensureSets(id){
+  if(!curSess) return null;
+  if(!curSess.sets[id]){
+    var ex=curWktEx().filter(function(e){return e.id===id;})[0]
+         || allEx().filter(function(e){return e.id===id;})[0];
+    var n=(ex&&parseInt(ex.s))||lastSets(id,curWkt)||3;
+    var lr=lastR(id,curWkt);
+    curSess.sets[id]=Array.from({length:n},function(){
+      return {w: ex?defW(ex,curWkt):0, r: lr||'', done:false, _auto:true};
+    });
+    saveC();
+  }
+  return curSess.sets[id];
+}
 function doAdj(id,i,d){
   if(skipMode) return;
-  var s=curSess.sets[id][i];
+  var a=ensureSets(id); if(!a||!a[i]) return;
+  var s=a[i];
   s.w=Math.max(0,Math.round((s.w+d)*10)/10);
+  delete s._auto; // fix36: ערך שנקבע ידנית לא נדרס יותר בברירת המחדל
   var el=$('wi_'+id+'_'+i); if(el) el.value=s.w;
   saveC();
 }
-function updW(id,i,v){ if(skipMode) return; curSess.sets[id][i].w=parseFloat(v)||0; saveC() }
-function updR(id,i,v){ if(skipMode) return; curSess.sets[id][i].r=v; saveC() }
+function updW(id,i,v){ if(skipMode) return; var a=ensureSets(id); if(!a||!a[i]) return; a[i].w=parseFloat(v)||0; delete a[i]._auto; saveC() }
+function updR(id,i,v){ if(skipMode) return; var a=ensureSets(id); if(!a||!a[i]) return; a[i].r=v; saveC() }
 // לחיצה על שדה: הערך הקודם הופך לרמז אפור והשדה מתרוקן — בלי סימון טקסט (מונע את בועת העתק/גזור)
 function clrFocus(el){
   el.dataset.prev=el.value;
@@ -3241,11 +3260,13 @@ function clrBlur(el){ if(el.value===''&&el.dataset.prev){ el.value=el.dataset.pr
 
 function togSet(id,i){
   if(skipMode) return;
-  var s=curSess.sets[id][i];
+  var a=ensureSets(id); if(!a||!a[i]) return;
+  var s=a[i];
   s.done=!s.done;
   var ri=$('ri_'+id+'_'+i), wi=$('wi_'+id+'_'+i);
   if(ri) s.r=ri.value||ri.placeholder||'';
   if(wi) s.w=parseFloat(wi.value!==''?wi.value:(wi.dataset.prev||wi.placeholder))||0;
+  if(s.done) delete s._auto; // הערך שנרשם בסט שבוצע מקובע
   if(s.done){ var av=getActiveVariant(id); if(av) s.v=av; }
   var sr=$('sr_'+id+'_'+i), db=$('db_'+id+'_'+i);
   if(s.done){
@@ -3305,12 +3326,11 @@ function updateVolDisplay(id){
 
 function adjSets(id, delta){
   if(skipMode) return;
-  var sets=curSess.sets[id];
+  var sets=ensureSets(id); if(!sets) return;
   var ex=allEx().filter(function(e){return e.id===id})[0];
   if(!ex) return;
-  var newLen=Math.max(1, sets.length+delta);
   if(delta>0){
-    sets.push({w:defW(ex,curWkt), r:lastR(id,curWkt)||'', done:false});
+    sets.push({w:defW(ex,curWkt), r:lastR(id,curWkt)||'', done:false, _auto:true});
   } else if(delta<0 && sets.length>1){
     sets.pop();
   }
@@ -3640,12 +3660,13 @@ function beginWkt(wkt){
   skipMode=false;
   curWkt=wkt; updTabs();
   if(!curSess||curSess.wkt!==curWkt){
+    curSess=null; // fix36: מונע דליפת וריאנט מהסשן הקודם לתוך defW
     var sets={};
     WKT[curWkt].ex.forEach(function(ex){
       var numSets = ex.s || lastSets(ex.id,curWkt) || 3;
       var lr = lastR(ex.id,curWkt);
       sets[ex.id] = Array.from({length:numSets},function(){
-        return {w:defW(ex,curWkt), r:lr||'', done:false};
+        return {w:defW(ex,curWkt), r:lr||'', done:false, _auto:true};
       });
     });
     curSess = {wkt:curWkt, start:Date.now(), sets};
@@ -3774,7 +3795,8 @@ function buildSetRow(ex, i, hasSess, isSuper){
   var isKg=ex.t==='kg', isTime=ex.t==='time';
   var sd = hasSess ? (curSess.sets[ex.id]||[])[i] : null;
   var done = sd?sd.done:false;
-  var sw = sd ? sd.w : defW(ex,curWkt);
+  // fix36: משקל שלא נקבע ידנית מתרענן תמיד מול "פעם אחרונה", כדי שלא יוצג ערך מיושן
+  var sw = (sd && !sd._auto) ? sd.w : defW(ex,curWkt);
   var sr = sd ? sd.r : '';
   var inp = '';
   var repsCtrl = '<div class="rc">'+
