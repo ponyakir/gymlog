@@ -228,6 +228,61 @@ canvas{width:100%;border-radius:var(--r);background:var(--s1);display:block}
   </div>
 </div>
 
+<div class="ovl" id="sxOvl" style="display:none;align-items:center;z-index:720">
+  <div style="background:var(--s1);border:1px solid var(--bd);border-radius:18px;padding:22px;max-width:340px;width:88%;max-height:86vh;overflow-y:auto">
+    <div style="font-size:17px;font-weight:800;color:var(--tx);text-align:center">➕ תרגיל לאימון זה</div>
+    <div style="font-size:11px;color:var(--t3);text-align:center;margin-bottom:14px">נוסף לאימון הנוכחי בלבד · לא משנה את התוכנית</div>
+    <div style="display:flex;gap:8px;margin-bottom:14px">
+      <button class="btn" id="sxTabE" onclick="sxMode('e')" style="font-size:13px;padding:9px 4px">תרגיל קיים</button>
+      <button class="btn" id="sxTabN" onclick="sxMode('n')" style="font-size:13px;padding:9px 4px">תרגיל חדש</button>
+    </div>
+    <div id="sxPaneE">
+      <select class="inp" id="sxPick"></select>
+      <div class="r2">
+        <input class="inp" id="sxESets" type="number" placeholder="סטים (3)"/>
+        <input class="inp" id="sxEReps" placeholder="חזרות"/>
+      </div>
+    </div>
+    <div id="sxPaneN" style="display:none">
+      <input class="inp" id="sxN" placeholder="שם התרגיל"/>
+      <select class="inp" id="sxT">
+        <option value="kg">🏋️ משקל + חזרות</option>
+        <option value="body">🏃 משקל גוף + חזרות</option>
+        <option value="time">⏱ זמן (שניות)</option>
+      </select>
+      <div class="r2">
+        <input class="inp" id="sxSets" type="number" placeholder="סטים (3)"/>
+        <input class="inp" id="sxReps" placeholder="חזרות (12)"/>
+        <input class="inp" id="sxKg" type="number" placeholder="ק״ג"/>
+      </div>
+      <label class="lbl">אזור גוף (חובה — כדי שייספר בסטטיסטיקה)</label>
+      <div id="sxMuscle" class="mchips">
+        <div class="mchip" onclick="this.classList.toggle('on')">חזה</div>
+        <div class="mchip" onclick="this.classList.toggle('on')">גב</div>
+        <div class="mchip" onclick="this.classList.toggle('on')">כתפיים</div>
+        <div class="mchip" onclick="this.classList.toggle('on')">יד אחורית</div>
+        <div class="mchip" onclick="this.classList.toggle('on')">יד קדמית</div>
+        <div class="mchip" onclick="this.classList.toggle('on')">בטן</div>
+        <div class="mchip" onclick="this.classList.toggle('on')">רגל קדמית</div>
+        <div class="mchip" onclick="this.classList.toggle('on')">רגל אחורית</div>
+        <div class="mchip" onclick="this.classList.toggle('on')">תאומים</div>
+      </div>
+      <label class="lbl">סוג מנוף (למקדם הנפח)</label>
+      <select class="inp" id="sxGear">
+        <option value="1">🏋️ חופשי (×1)</option>
+        <option value="0.5">🔀 פולי 2:1 (×0.5)</option>
+        <option value="0.87">⚙️ מכונה / האק 60° (×0.87)</option>
+        <option value="0.71">⚙️ מזחלת 45° (×0.71)</option>
+        <option value="0.5m">⚙️ מזחלת 30° (×0.5)</option>
+      </select>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:6px">
+      <button class="btn" style="background:var(--s2);color:var(--tx);border:1px solid var(--bd)" onclick="closeOvl('sxOvl')">ביטול</button>
+      <button class="btn" onclick="doAddSessEx()">הוסף</button>
+    </div>
+  </div>
+</div>
+
 <div class="ovl" id="ssOvl" style="display:none;align-items:center;z-index:720">
   <div style="background:var(--s1);border:1px solid rgba(220,80,80,.45);border-radius:18px;padding:22px;max-width:340px;width:88%;max-height:86vh;overflow-y:auto">
     <div style="font-size:17px;font-weight:800;color:var(--tx);text-align:center">🔗 הוסף סופרסט</div>
@@ -951,7 +1006,16 @@ function preDeloadBest(id, wkt, variant, type, beforeIdx){
   }
   return null;
 }
-function allEx(){ var r=[]; Object.keys(WKT).forEach(function(k){ r=r.concat(WKT[k].ex||[]); }); return r; }
+// fix33: תרגילים שנוספו לאימון בודד — נשמרים בנפרד מהתוכנית, אך מוכרים לכל חישובי הנפח והסטטיסטיקה
+function sessExReg(){ return ld('exDefReg',{}); }
+function sessExDefs(){ var r=sessExReg(); return Object.keys(r).map(function(k){ return r[k]; }); }
+function allEx(){ var r=[]; Object.keys(WKT).forEach(function(k){ r=r.concat(WKT[k].ex||[]); }); return r.concat(sessExDefs()); }
+// רשימת התרגילים של האימון הפעיל: תרגילי התוכנית + תוספות הסשן
+function curWktEx(){
+  var base=(WKT[curWkt]&&WKT[curWkt].ex)||[];
+  var xs=(curSess&&curSess.wkt===curWkt&&curSess.xEx)||[];
+  return base.concat(xs);
+}
 
 // ══════════════════════════════════════════════════════
 // VALID MUSCLES + MAPPING SYSTEM
@@ -1684,13 +1748,18 @@ function renderStatsBar(){
   // fix31: כרטיס לכל סוג אימון קיים, כולל סוגים שכבר לא בתוכנית
   var wktKeys=planKeys().slice();
   sessions.forEach(function(s){ if(s.wkt && wktKeys.indexOf(s.wkt)<0) wktKeys.push(s.wkt); });
-  var icons={A:'🅰️',B:'🅱️',C:'🅲',D:'🅳',E:'🅴'};
+  // fix34: תג אות אחיד לכל סוג אימון. אמוג'י ריבועי קיים רק ל-A/B — C ואילך נפלו לגופן טקסט בצבע אחר.
+  function wktBadge(k){
+    return '<span style="display:inline-flex;align-items:center;justify-content:center;'
+      +'width:20px;height:20px;border-radius:5px;background:var(--acc);color:#1a1a1a;'
+      +'font-size:12px;font-weight:900;line-height:1;font-family:inherit">'+k+'</span>';
+  }
   var stats=[
     {icon:'🏋️',label:'סה"כ אימונים',val:String(total),color:'var(--acc)'}
   ];
   wktKeys.forEach(function(k){
     var n=sessions.filter(function(s){return s.wkt===k}).length;
-    stats.push({icon:icons[k]||('🔤'), label:'אימוני '+k, val:String(n), color:'var(--acc)'});
+    stats.push({icon:wktBadge(k), label:'אימוני '+k, val:String(n), color:'var(--acc)'});
   });
   stats.push({icon:'📅',label:'חודשים פעיל',val:activeMonths,color:'var(--acc)',act:true});
   var dl=calcDeloadStatus();
@@ -3181,13 +3250,29 @@ function togSet(id,i){
   var sr=$('sr_'+id+'_'+i), db=$('db_'+id+'_'+i);
   if(s.done){
     sr.className='sr done'; db.className='db on'; db.textContent='✓';
-    if(curSess.sets[id].every(function(x){return x.done})) $('ec_'+id).classList.add('done');
     $('finBtn').style.display='block';
   } else {
     sr.className='sr'; db.className='db'; db.textContent='○';
-    $('ec_'+id).classList.remove('done');
   }
+  // fix32: לסופרסט אין כרטיס משלו — מצב "הושלם" מחושב על האב+הסופרסט ומוחל על כרטיס האב
+  refreshCardDone(id);
   saveC(); updateVolDisplay(id);
+}
+
+// fix32: מעדכן את סימון ההשלמה של כרטיס התרגיל, כולל סופרסט מקונן
+function refreshCardDone(id){
+  var arr=curWktEx();
+  var i=arr.findIndex(function(e){return e.id===id;});
+  var host=id, ss=null;
+  if(i>=0 && arr[i].ss){ host=arr[i-1]?arr[i-1].id:id; ss=id; }
+  else if(i>=0 && arr[i+1] && arr[i+1].ss){ ss=arr[i+1].id; }
+  var card=$('ec_'+host); if(!card) return;
+  function full(x){
+    var st=curSess&&curSess.sets[x];
+    return !!(st && st.length && st.every(function(v){return v.done;}));
+  }
+  if(full(host) && (!ss || full(ss))) card.classList.add('done');
+  else card.classList.remove('done');
 }
 
 function calcExVol(id){
@@ -3205,7 +3290,7 @@ function calcExVol(id){
 }
 function updateVolDisplay(id){
   // fix21: לסופרסט אין כרטיס משלו — הנפח שלו מוצג בכרטיס האב, בנפרד ובמלואו
-  var arr=(WKT[curWkt]&&WKT[curWkt].ex)||[];
+  var arr=curWktEx();
   var i=arr.findIndex(function(e){return e.id===id;});
   var host=id, ss=null;
   if(i>=0 && arr[i].ss){ host=arr[i-1]?arr[i-1].id:id; ss=id; }
@@ -3724,7 +3809,7 @@ function renderWkt(){
   const list=$('exList'); list.innerHTML='';
   const hasSess = curSess && curSess.wkt===curWkt;
 
-  var _wArr = WKT[curWkt].ex;
+  var _wArr = curWktEx();
   _wArr.forEach(function(ex, _wi){
     if(ex.ss) return; // fix21: הסופרסט מוצג בתוך כרטיס האב, לא ככרטיס נפרד
     var ssEx = (_wArr[_wi+1] && _wArr[_wi+1].ss) ? _wArr[_wi+1] : null;
@@ -3810,6 +3895,16 @@ function renderWkt(){
       (hasSess&&curSess.sets[ex.id]?'<div id="vol_'+ex.id+'" style="font-size:10px;color:var(--t2);margin-top:6px;text-align:left;letter-spacing:.3px"></div>':'');
     list.appendChild(card);
   });
+
+  // fix33: הוספת תרגיל לאימון הנוכחי בלבד (לא נכנס לתוכנית הקבועה)
+  if(hasSess){
+    var addBtn = document.createElement('button');
+    addBtn.className = 'btn sec';
+    addBtn.style.cssText = 'margin-top:4px;background:var(--s2);border:1px dashed var(--bd);color:var(--t2);font-size:13px';
+    addBtn.textContent = '➕ הוסף תרגיל לאימון זה';
+    addBtn.onclick = openSessEx;
+    list.appendChild(addBtn);
+  }
 
   var btn = $('finBtn');
   if(btn) btn.style.display = hasSess ? 'block' : 'none';
@@ -4313,6 +4408,69 @@ function doAddSuper(){
 function hasSuperAfter(wkt, idx){
   var arr=WKT[wkt].ex, nx=arr[idx+1];
   return !!(nx && nx.ss);
+}
+
+// fix33: הוספת תרגיל לאימון הנוכחי בלבד
+var _sxMode='e';
+function sxMode(m){
+  _sxMode=m;
+  $('sxPaneE').style.display = m==='e' ? 'block' : 'none';
+  $('sxPaneN').style.display = m==='n' ? 'block' : 'none';
+  var on='background:var(--acc);color:#1a1a1a;border:none;font-size:13px;padding:9px 4px';
+  var off='background:var(--s2);color:var(--t2);border:1px solid var(--bd);font-size:13px;padding:9px 4px';
+  $('sxTabE').style.cssText = m==='e'?on:off;
+  $('sxTabN').style.cssText = m==='n'?on:off;
+}
+function openSessEx(){
+  if(!curSess||curSess.wkt!==curWkt){ toast('יש להתחיל אימון קודם'); return; }
+  var inWkt={}; curWktEx().forEach(function(e){ inWkt[e.id]=1; });
+  var opts=allEx().filter(function(e){ return !inWkt[e.id] && !e.ss; })
+    .map(function(e){ return '<option value="'+e.id+'">'+e.n+'</option>'; }).join('');
+  $('sxPick').innerHTML = opts || '<option value="">אין תרגילים זמינים</option>';
+  ['sxN','sxKg','sxSets','sxReps','sxESets','sxEReps'].forEach(function(k){ if($(k)) $(k).value=''; });
+  Array.from($('sxMuscle').children).forEach(function(c){ c.classList.remove('on'); });
+  sxMode('e');
+  openOvl('sxOvl');
+}
+function doAddSessEx(){
+  if(!curSess||curSess.wkt!==curWkt){ toast('יש להתחיל אימון קודם'); return; }
+  var def, sets, reps;
+  if(_sxMode==='e'){
+    var pid=$('sxPick').value;
+    if(!pid){ toast('יש לבחור תרגיל'); return; }
+    var src=allEx().filter(function(e){ return e.id===pid; })[0];
+    if(!src){ toast('התרגיל לא נמצא'); return; }
+    sets=parseInt($('sxESets').value)||src.s||3;
+    reps=$('sxEReps').value||src.r||'12';
+    def=Object.assign({},src,{id:'X'+Date.now(),s:sets,r:reps,_sx:true,_src:src.id});
+    delete def.ss; delete def.variants;
+    // המיפוי עשוי לשבת ב-muscleMap ולא בשדה muscle — משכפלים אותו כדי שהתרגיל ייספר
+    var rm=resolveMuscles(src.id);
+    if(rm.length) def.muscle=rm.join(', ');
+  } else {
+    var name=($('sxN').value||'').trim();
+    if(!name){ toast('יש לציין שם'); return; }
+    var sel=[];
+    Array.from($('sxMuscle').children).forEach(function(c){ if(c.classList.contains('on')) sel.push(c.textContent); });
+    if(!sel.length){ toast('יש לבחור אזור גוף'); return; }
+    sets=parseInt($('sxSets').value)||3;
+    reps=$('sxReps').value||'12';
+    def={id:'X'+Date.now(), n:name, t:$('sxT').value, s:sets, r:reps,
+         w:parseFloat($('sxKg').value)||0, rest:60, muscle:sel.join(', '), _c:true, _sx:true};
+    applyGear(def, (($('sxGear')||{}).value)||'1');
+  }
+  // רישום קבוע של ההגדרה — כדי שהנפח והסטטיסטיקה יזהו אותו גם אחרי סיום האימון
+  var reg=sessExReg(); reg[def.id]=def; sv('exDefReg',reg);
+  var nr=ld('exNameReg',{}); nr[def.id]=def.n; sv('exNameReg',nr);
+  var mr=ld('exMuscleReg',{}); mr[def.id]=def.muscle||''; sv('exMuscleReg',mr);
+
+  if(!curSess.xEx) curSess.xEx=[];
+  curSess.xEx.push(def);
+  curSess.sets[def.id]=Array.from({length:sets},function(){ return {w:def.w||0, r:'', done:false}; });
+  saveC();
+  closeOvl('sxOvl');
+  renderWkt();
+  toast('✅ "'+def.n+'" נוסף לאימון זה');
 }
 
 function doAddEx2(){
