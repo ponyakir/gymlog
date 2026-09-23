@@ -3600,6 +3600,8 @@ function finWkt(){
   
   var btn=$('finBtn'); if(btn) btn.style.display='none'; 
   renderWkt(); updNavWkt();
+  // fix40: הסטים השבועיים לשריר מרונדרים רק ב-renderHome — בלי זה התיבה נשארת על נתון ישן
+  try{ renderHome(); }catch(e){}
   toast('🎉 כל הכבוד '+P.name+'! נשמר פנימית וחיצונית');
 }
 
@@ -3839,8 +3841,13 @@ function renderWkt(){
     if(ex.ss) return; // fix21: הסופרסט מוצג בתוך כרטיס האב, לא ככרטיס נפרד
     var ssEx = (_wArr[_wi+1] && _wArr[_wi+1].ss) ? _wArr[_wi+1] : null;
     var isKg=ex.t==='kg', isTime=ex.t==='time';
-    var allDone = hasSess && (curSess.sets[ex.id]||[]).length===ex.s && (curSess.sets[ex.id]||[]).every(function(s){return s.done})
-                  && (!ssEx || ((curSess.sets[ssEx.id]||[]).length===ssEx.s && (curSess.sets[ssEx.id]||[]).every(function(s){return s.done})));
+    // fix38: "הושלם" נקבע לפי הסטים שבסשן בפועל, לא לפי ex.s שבתוכנית —
+    // שינוי מספר הסטים בתוכנית באמצע אימון פתוח השאיר את הכרטיס תקוע כלא-הושלם.
+    function _full(x){
+      var st = hasSess && curSess.sets[x];
+      return !!(st && st.length && st.every(function(v){ return v.done; }));
+    }
+    var allDone = hasSess && _full(ex.id) && (!ssEx || _full(ssEx.id));
     var card = document.createElement('div');
     card.className = 'ec'+(allDone?' done':'')+((curSess&&curSess.deload)?' deload':'');
     card.id = 'ec_'+ex.id;
@@ -4567,7 +4574,19 @@ function showSess(idx){
     ' · '+d.toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'})+
     (s.dur?' · '+s.dur+' דק\'':'');
 
-  var exOrder=WKT[s.wkt]?WKT[s.wkt].ex:[];
+  // fix39: מציגים כל תרגיל שבוצע בפועל — כולל תוספות לאימון בודד ותרגילים
+  // שהוסרו מהתוכנית מאז. קודם לפי סדר התוכנית, ואז השאר.
+  var planEx=WKT[s.wkt]?WKT[s.wkt].ex:[];
+  var defs={};
+  allEx().forEach(function(e){ defs[e.id]=e; });
+  (s.xEx||[]).forEach(function(e){ defs[e.id]=e; });
+  var seen={}, exOrder=[];
+  planEx.forEach(function(e){ seen[e.id]=1; exOrder.push(defs[e.id]||e); });
+  Object.keys(s.sets||{}).forEach(function(id){
+    if(seen[id]) return;
+    seen[id]=1;
+    exOrder.push(defs[id] || {id:id, n:(s.exNames&&s.exNames[id])||ld('exNameReg',{})[id]||id, t:'kg'});
+  });
   var html='';
   exOrder.forEach(function(ex){
     var sets=(s.sets||{})[ex.id]; if(!sets||!sets.length) return;
