@@ -604,16 +604,8 @@ canvas{width:100%;border-radius:var(--r);background:var(--s1);display:block}
     </div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
       <div class="vtitle" style="margin-bottom:0">📈 התקדמות</div>
-      <div id="pgToggle" onclick="togglePgMode()"
-        style="display:flex;background:var(--s2);border:1px solid var(--bd);border-radius:20px;padding:3px;cursor:pointer;font-size:12px;font-weight:700;gap:2px">
-        <span id="pgM1" style="padding:4px 10px;border-radius:16px;background:var(--acc);color:#fff">מההתחלה</span>
-        <span id="pgM2" style="padding:4px 10px;border-radius:16px;color:var(--t3)">אחרון</span>
-      </div>
     </div>
     <div id="statsBar" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px"></div>
-    <div class="chips" id="chips"></div>
-    <canvas id="pgc" height="220"></canvas>
-    <div id="prbox" style="margin-top:10px"></div>
     <div id="volCharts"></div>
     <div style="font-size:10px;color:var(--t3);margin-top:6px;text-align:center">משקל × חזרות · החלקה ימינה = אחורה בזמן</div>
 
@@ -735,17 +727,6 @@ const STEP = 2.5;
 let P = null, wLog = [], sessions = [], curSess = null, curWkt = 'A', selEx = null;
 let tmrIv = null;
 let skipMode = false;
-let pgMode = 'start'; 
-
-function togglePgMode(){
-  pgMode = pgMode==='start' ? 'last' : 'start';
-  var on='background:var(--acc);color:#fff', off='color:var(--t3)';
-  var m1 = document.getElementById('pgM1');
-  var m2 = document.getElementById('pgM2');
-  if(m1) m1.style.cssText='padding:4px 10px;border-radius:16px;'+(pgMode==='start'?on:off);
-  if(m2) m2.style.cssText='padding:4px 10px;border-radius:16px;'+(pgMode==='last'?on:off);
-  if(typeof drawChart === 'function') drawChart();
-}
 
 const WKT = {
   A: { name:'עליון', ex: [
@@ -2572,400 +2553,12 @@ function openOvlFade(id){
 // ══════════════════════════════════════════════════════
 function renderProg(){
   try{ renderStatsBar(); } catch(e){ console.error("Stats Error:", e); }
-  if(!selEx || selEx==='__all__'){ selEx='__m__'+(getMuscleGroups()[0]||VALID_MUSCLES[0]); }
-  
-  var chips=$('chips'); chips.innerHTML='';
-  function mkChip(label,id){ 
-      var b=document.createElement('button'); 
-      b.className='chip'+(selEx===id?' on':''); 
-      b.textContent=label; 
-      b.onclick=function(){selP(id);}; 
-      chips.appendChild(b); 
-  }
-  
-  VALID_MUSCLES.forEach(function(m){ mkChip(m,'__m__'+m); });
-  
+  // fix41: גרף מגמת העומס לפי אזור גוף הוסר — נשארו גרפי הנפח
   requestAnimationFrame(function(){
-    try{ drawChart(); } catch(e){ console.error("Chart Error:", e); }
     try{ drawVolChart(); } catch(e){ console.error("VolChart Error:", e); }
     try{ if(typeof drawGauge === 'function') drawGauge(); } catch(e){}
     try{ if(typeof drawInsights === 'function') drawInsights(); } catch(e){}
   });
-}
-
-function selP(id){ selEx=id; renderProg() }
-
-window.chartHitboxes = [];
-
-function getBestSetDesc(sess, exId) {
-    if(!sess || !sess.sets || !sess.sets[exId]) return 'לא בוצע';
-    var ex = allEx().filter(function(e){return e.id===exId;})[0] || {t:'kg', r:'10'};
-    var done = sess.sets[exId].filter(function(x){return x.done;});
-    if(!done.length) return 'לא בוצע';
-    var bw = bwAt(sess.start);
-    var best = null, maxS = -1;
-    done.forEach(function(st){
-       var r = parseReps(st.r, ex.r);
-       var w = parseFloat(st.w)||0;
-       var s = (ex.t==='kg') ? w*r : (bw+w)*r;
-       if(s > maxS) { maxS = s; best = st; }
-    });
-    if(!best) return 'לא בוצע';
-    if(ex.t==='time') return (best.r||0)+' שניות';
-    if(ex.t==='body') return (best.r||0)+' חז\' '+(best.w>0?('+ '+best.w+' ק"ג'):'');
-    return best.w+' ק"ג × '+best.r;
-}
-
-function getPrevBestSetDesc(currStart, exId) {
-    var sorted = sessions.slice().sort(function(a,b){return a.start-b.start;});
-    var prevSess = null;
-    for(var i=sorted.length-1; i>=0; i--) {
-        if(sorted[i].start < currStart && sorted[i].sets && sorted[i].sets[exId] && sorted[i].sets[exId].some(function(x){return x.done;})) {
-            prevSess = sorted[i];
-            break;
-        }
-    }
-    return getBestSetDesc(prevSess, exId);
-}
-
-window.closeAnalysis = function(){
-    var box = $('analysisBox');
-    if(box){
-        box.style.background = 'rgba(0,0,0,0)';
-        var inner = $('analysisInner');
-        if(inner){
-            inner.style.transform = 'translateY(20px)';
-            inner.style.opacity = '0';
-        }
-        setTimeout(function(){ box.style.display='none'; }, 300);
-    }
-};
-
-function showPointAnalysis(hit){
-    var dStr = new Date(hit.d).toLocaleDateString('he-IL', {weekday:'short', day:'numeric', month:'short'});
-    var sess = sessions.filter(function(s){return s.start===hit.d;})[0];
-    if(!sess) return;
-    
-    var html = '<div id="analysisInner" style="background:var(--s1);padding:20px;border-radius:16px;border:1px solid var(--acc);max-width:320px;width:100%;box-shadow:0 10px 25px rgba(0,0,0,0.8); transform:translateY(20px); opacity:0; transition:all 0.3s ease; max-height:85vh; display:flex; flex-direction:column;">';
-    html += '<div style="font-weight:900;font-size:16px;margin-bottom:12px;color:var(--acc);text-align:center;flex-shrink:0;">📊 ניתוח התקדמות: '+dStr+'</div>';
-
-    if(hit.mode === 'single'){
-        var bestC = getBestSetDesc(sess, hit.exId);
-        var exName = getExName(hit.exId);
-        
-        if(hit.prev){
-            var sPrev = sessions.filter(function(s){return s.start===hit.prev.d;})[0];
-            var bestP = getBestSetDesc(sPrev, hit.exId);
-            var diff = hit.pct - hit.prev.pct;
-            var dir = diff >= 0 ? '📈 עלייה' : '📉 ירידה';
-            var clr = diff >= 0 ? 'var(--ok)' : 'var(--red)';
-            
-            html += '<div style="font-size:14px;font-weight:bold;color:var(--tx);margin-bottom:8px;text-align:center;">'+exName+'</div>';
-            
-            // תצוגת הכיוונים מוסדרת: אימון לפני אחרון (ימין) -> חץ שמאלה -> אימון אחרון (שמאל)
-            html += '<div style="display:flex;flex-direction:row;justify-content:space-between;background:var(--s2);padding:10px;border-radius:8px;margin-bottom:10px;border:1px solid var(--bd);">';
-            html += '<div style="text-align:center;flex:1;"><div style="font-size:11px;color:var(--t3);margin-bottom:4px;">אימון לפני אחרון</div><div style="font-size:12px;color:var(--t2);">'+bestP+'</div></div>';
-            html += '<div style="display:flex;align-items:center;color:var(--acc);font-size:16px;padding:0 4px;direction:ltr;">&larr;</div>';
-            html += '<div style="text-align:center;flex:1;"><div style="font-size:11px;color:var(--acc);margin-bottom:4px;">אימון אחרון (נוכחי)</div><div style="font-size:12px;font-weight:bold;color:var(--tx);">'+bestC+'</div></div>';
-            html += '</div>';
-            
-            html += '<div style="font-size:15px;font-weight:bold;color:'+clr+';text-align:center;">'+dir+' של '+Math.abs(diff).toFixed(1)+'%</div>';
-            
-            var pW = hit.prev.orig;
-            var cW = hit.orig;
-
-        } else {
-            html += '<div style="font-size:14px;margin-bottom:6px;text-align:center;color:var(--tx);"><b>'+exName+'</b></div>';
-            html += '<div style="background:var(--s2);padding:10px;border-radius:8px;text-align:center;border:1px solid var(--bd);"><span style="font-size:11px;color:var(--acc);display:block;margin-bottom:4px;">הסט החזק באימון:</span><b style="font-size:13px;">'+bestC+'</b></div>';
-            html += '<div style="font-size:12px;color:var(--t3);text-align:center;margin-top:10px;">זוהי נקודת הבסיס (אימון ראשון) להתקדמות זו.</div>';
-        }
-    } else {
-        html += '<div style="font-size:12px;color:var(--t2);margin-bottom:12px;text-align:center;line-height:1.4;flex-shrink:0;">פירוט ביצועי שיא לפי תרגילים באימון זה בהשוואה לאימון שלפניו:</div>';
-        html += '<div style="overflow-y:auto;padding-right:4px;flex:1;">';
-        
-        var targetExs = [];
-        if(hit.mode === 'all'){
-            targetExs = allEx().filter(function(e){return e.id.charAt(0) === sess.wkt && !hasInvalidMuscle(e.id);});
-        } else if(hit.mode === 'group'){
-            targetExs = allEx().filter(function(e){ return !hasInvalidMuscle(e.id) && resolveMuscles(e.id).indexOf(hit.muscle) >= 0; });
-        }
-        
-        var foundAny = false;
-        targetExs.forEach(function(ex){
-            var currDesc = getBestSetDesc(sess, ex.id);
-            if(currDesc !== 'לא בוצע' && currDesc !== 'אין נתונים') {
-                var prevDesc = getPrevBestSetDesc(sess.start, ex.id);
-                if (prevDesc === 'לא בוצע' || prevDesc === 'אין נתונים') prevDesc = '-';
-                
-                var currW = 0, prevW = 0;
-                (sess.sets[ex.id]||[]).forEach(function(st){ if(st.done && st.w>currW) currW=st.w; });
-                var prevSess = null;
-                var sorted = sessions.slice().sort(function(a,b){return a.start-b.start;});
-                for(var i=sorted.length-1; i>=0; i--){
-                    if(sorted[i].start < sess.start && sorted[i].sets && sorted[i].sets[ex.id] && sorted[i].sets[ex.id].some(function(x){return x.done;})) {
-                        prevSess = sorted[i]; break;
-                    }
-                }
-                if(prevSess) {
-                    (prevSess.sets[ex.id]||[]).forEach(function(st){ if(st.done && st.w>prevW) prevW=st.w; });
-                }
-                
-                html += '<div style="background:var(--s2);padding:10px;border-radius:8px;margin-bottom:8px;border:1px solid var(--bd);">';
-                html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">';
-                html += '<div style="font-weight:bold;font-size:13px;color:var(--tx);">'+getExName(ex.id)+'</div>';
-                
-                if(currW > 0 && prevW > 0) {
-                }
-                
-                html += '</div>';
-                // תצוגת הכיוונים מוסדרת: אימון לפני אחרון (ימין) -> חץ שמאלה -> אימון אחרון (שמאל)
-                html += '<div style="display:flex;flex-direction:row;justify-content:space-between;align-items:center;">';
-                html += '<span style="color:var(--t3);font-size:12px;flex:1;text-align:right;">'+prevDesc+'</span>';
-                html += '<span style="color:var(--acc);font-size:16px;margin:0 6px;direction:ltr;">&larr;</span>';
-                html += '<span style="color:var(--ok2);font-size:12px;font-weight:bold;flex:1;text-align:left;">'+currDesc+'</span>';
-                html += '</div>';
-                html += '</div>';
-                foundAny = true;
-            }
-        });
-        if(!foundAny) html += '<div style="font-size:13px;color:var(--t3);text-align:center;">לא נמצאו תרגילים רלוונטיים.</div>';
-        html += '</div>';
-        
-        if(hit.prevPct !== undefined){
-            var diff = hit.pct - hit.prevPct;
-            if(Math.abs(diff) > 0.1) {
-                var dir = diff > 0 ? '📈 מגמה כללית: עלייה' : '📉 מגמה כללית: ירידה';
-                var clr = diff > 0 ? 'var(--ok)' : 'var(--red)';
-                html += '<div style="margin-top:12px;font-size:14px;font-weight:bold;color:'+clr+';text-align:center;flex-shrink:0;">'+dir+' של '+Math.abs(diff).toFixed(1)+'% מאימון קודם</div>';
-            }
-        }
-    }
-    
-    html += '<button onclick="closeAnalysis()" style="margin-top:16px;width:100%;padding:12px;border-radius:8px;background:var(--acc);border:none;color:#000;font-weight:900;cursor:pointer;font-size:14px;flex-shrink:0;">הבנתי, סגור</button>';
-    html += '</div>';
-
-    var box = $('analysisBox');
-    if(!box){
-        box = document.createElement('div');
-        box.id = 'analysisBox';
-        box.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px; transition:background 0.3s ease;';
-        box.onclick = function(e){ if(e.target===box) closeAnalysis(); };
-        document.body.appendChild(box);
-    }
-    box.innerHTML = html;
-    box.style.display = 'flex';
-    
-    requestAnimationFrame(function(){
-        box.style.background = 'rgba(0,0,0,0.85)';
-        var inner = $('analysisInner');
-        if(inner){
-            inner.style.transform = 'translateY(0)';
-            inner.style.opacity = '1';
-        }
-    });
-}
-
-function drawChart(){
-  var canvas=$('pgc');
-  if(!canvas) return;
-  var ctx=canvas.getContext('2d');
-  var dpr=window.devicePixelRatio||1;
-  canvas.width=canvas.offsetWidth*dpr; canvas.height=220*dpr;
-  ctx.scale(dpr,dpr);
-  var CW=canvas.offsetWidth, CH=220;
-  ctx.clearRect(0,0,CW,CH);
-  ctx.fillStyle='#1a1a1a'; ctx.fillRect(0,0,CW,CH);
-  
-  window.chartHitboxes = [];
-  
-  if(!canvas._hasClick){
-      canvas.addEventListener('click', function(e){
-          if(window.chartHitboxes.length === 0) return;
-          var rect = canvas.getBoundingClientRect();
-          var cx = e.clientX - rect.left;
-          var cy = e.clientY - rect.top;
-          var hit = window.chartHitboxes.reduce(function(best, h){
-              var dist = Math.hypot(h.x - cx, h.y - cy);
-              if(dist < 25 && (!best || dist < best._dist)){ h._dist = dist; return h; }
-              return best;
-          }, null);
-          if(hit) showPointAnalysis(hit);
-      });
-      canvas._hasClick = true;
-  }
-
-  function noData(msg){ ctx.fillStyle='#555'; ctx.font='13px Heebo'; ctx.textAlign='center'; ctx.fillText(msg,CW/2,CH/2); $('prbox').innerHTML=''; }
-
-  if(typeof selEx==='string' && selEx.indexOf('__m__')===0){
-    var muscleGroup=selEx.slice(5);
-    // fix30: מגמת שיאים — ממוצע המשקל הכבד ביותר בכל תרגיל של השריר, לאורך זמן.
-    // עולה = פרוגרסיה בעומס. תרגילי משקל גוף/זמן אינם נמדדים בק"ג ולכן לא נכללים.
-    var pts=[];
-    sessions.slice().sort(function(a,b){return a.start-b.start;}).forEach(function(s){
-      var vals=[];
-      Object.keys(s.sets||{}).forEach(function(exId){
-        var e=allEx().filter(function(x){return x.id===exId})[0];
-        if(!e||hasInvalidMuscle(exId)) return;
-        if(exTypeAt(e, s.start)!=='kg') return;
-        var split=resolveMuscleSplit(exId);
-        if(!(split[muscleGroup]>0)) return;
-        var done=(s.sets[exId]||[]).filter(function(x){ return x.done && (parseFloat(x.w)||0)>0; });
-        if(!done.length) return;
-        var mx=Math.max.apply(null, done.map(function(x){ return parseFloat(x.w)||0; }));
-        vals.push(mx*exCoefAt(e, s.start));
-      });
-      if(vals.length){
-        var avg=vals.reduce(function(a,b){return a+b;},0)/vals.length;
-        pts.push({d:s.start, v:avg, n:vals.length});
-      }
-    });
-
-    if(pts.length<2){ noData('צריך לפחות 2 אימונים עם '+muscleGroup); return; }
-    if(pts.length>12) pts=pts.slice(-12);
-
-    var pad={l:46,r:14,t:22,b:28};
-    var gW=CW-pad.l-pad.r, gH=CH-pad.t-pad.b;
-    var vals2=pts.map(function(p){return p.v;});
-    var mx2=Math.max.apply(null,vals2), mn2=Math.min.apply(null,vals2);
-    var span=mx2-mn2;
-    var lo=Math.max(0, mn2-Math.max(span*0.35, mx2*0.06));
-    var hi=mx2+Math.max(span*0.25, mx2*0.05);
-    var rng=hi-lo||1;
-    var maxIdx=vals2.indexOf(mx2);
-    function px2(i){return pad.l+(pts.length>1?i/(pts.length-1)*gW:gW/2);}
-    function py2(v){return pad.t+gH-(v-lo)/rng*gH;}
-
-    for(var gi=0; gi<=3; gi++){
-      var gv=hi-(rng/3)*gi, gy=py2(gv);
-      ctx.strokeStyle='rgba(255,255,255,.05)'; ctx.lineWidth=1;
-      ctx.beginPath(); ctx.moveTo(pad.l,gy); ctx.lineTo(CW-pad.r,gy); ctx.stroke();
-      ctx.fillStyle='#555'; ctx.font='9px Heebo'; ctx.textAlign='right';
-      ctx.fillText(Math.round(gv*10)/10,pad.l-4,gy+3);
-    }
-
-    ctx.beginPath(); ctx.moveTo(px2(0),py2(pts[0].v));
-    for(var ii=1;ii<pts.length;ii++) ctx.lineTo(px2(ii),py2(pts[ii].v));
-    ctx.lineTo(px2(pts.length-1),py2(lo)); ctx.lineTo(px2(0),py2(lo)); ctx.closePath();
-    var gr2=ctx.createLinearGradient(0,pad.t,0,pad.t+gH);
-    gr2.addColorStop(0,'rgba(201,168,76,.28)'); gr2.addColorStop(1,'rgba(201,168,76,0)');
-    ctx.fillStyle=gr2; ctx.fill();
-
-    ctx.beginPath(); ctx.moveTo(px2(0),py2(pts[0].v));
-    for(var ii=1;ii<pts.length;ii++) ctx.lineTo(px2(ii),py2(pts[ii].v));
-    ctx.strokeStyle='#c9a84c'; ctx.lineWidth=2.5; ctx.stroke();
-
-    pts.forEach(function(p,ii){
-      var xx=px2(ii), yy=py2(p.v);
-      ctx.beginPath(); ctx.arc(xx,yy,ii===maxIdx?4.5:3,0,Math.PI*2);
-      ctx.fillStyle=ii===maxIdx?'#e8c96a':'#c9a84c'; ctx.fill();
-    });
-    // ערך אחרון מוצג תמיד
-    var lastI=pts.length-1;
-    ctx.fillStyle='#e8c96a'; ctx.font='bold 9px Heebo'; ctx.textAlign='center';
-    ctx.fillText(Math.round(pts[lastI].v*10)/10, px2(lastI), Math.max(10,py2(pts[lastI].v)-9));
-    if(maxIdx!==lastI){
-      ctx.fillStyle='#c9a84c';
-      ctx.fillText(Math.round(mx2*10)/10, px2(maxIdx), Math.max(10,py2(mx2)-9));
-    }
-
-    ctx.fillStyle='#555'; ctx.font='9px Heebo'; ctx.textAlign='center';
-    [0,Math.floor((pts.length-1)/2),pts.length-1].forEach(function(i){
-      var dd=new Date(pts[i].d); ctx.fillText(dd.getDate()+'/'+(dd.getMonth()+1),px2(i),CH-6);
-    });
-
-    ctx.fillStyle='#f0eeee'; ctx.font='bold 11px Heebo'; ctx.textAlign='center';
-    ctx.fillText(muscleGroup+' — מגמת עומס (ק"ג ממוצע)',CW/2,13);
-
-    var lastV=pts[lastI].v, prevV=pts.length>1?pts[lastI-1].v:0;
-    var firstV=pts[0].v;
-    var trend = lastV>firstV*1.02 ? {t:'📈 מגמת עלייה',c:'var(--ok2)'}
-              : lastV<firstV*0.98 ? {t:'📉 מגמת ירידה',c:'var(--red)'}
-              : {t:'➡️ יציב',c:'var(--t2)'};
-    var diffTxt = prevV>0 ? ((lastV>=prevV?'+':'')+Math.round((lastV-prevV)/prevV*100)+'% מהאימון הקודם') : '';
-    $('prbox').innerHTML='<div style="background:var(--s1);border:1px solid var(--bd);border-radius:10px;padding:10px 14px;text-align:center">'+
-      '<span style="font-size:12px;color:var(--t2)">עומס ממוצע ב'+muscleGroup+': </span>'+
-      '<span style="font-size:18px;font-weight:900;color:var(--acc2)">'+(Math.round(lastV*10)/10)+' ק"ג</span>'+
-      (diffTxt?'<div style="font-size:11px;color:'+(lastV>=prevV?'var(--ok2)':'var(--red)')+';margin-top:3px">'+diffTxt+'</div>':'')+
-      '<div style="font-size:11px;font-weight:700;color:'+trend.c+';margin-top:4px">'+trend.t+'</div>'+
-      '<div style="font-size:10px;color:var(--t3);margin-top:3px">שיא: '+(Math.round(mx2*10)/10)+' ק"ג · ממוצע המשקל הכבד ביותר בכל תרגיל</div></div>';
-    return;
-  }
-
-  var singleEx = allEx().filter(function(e){return e.id===selEx})[0];
-  if(!singleEx){ noData('תרגיל לא נמצא'); return; }
-
-  var pp = getExHistory(selEx).map(function(p, i, arr){
-      var pct = 0;
-      if(pgMode==='last'){
-          pct = i===0 ? 0 : (arr[i-1].w>0 ? (p.w-arr[i-1].w)/arr[i-1].w*100 : 0);
-      } else {
-          pct = arr[0].w>0 ? (p.w-arr[0].w)/arr[0].w*100 : 0;
-      }
-      return {d:p.d, w:p.w, orig:p.originalW, pct:parseFloat(pct.toFixed(2))};
-  });
-  
-  if(pp.length<2){ noData('נדרשים לפחות 2 אימונים לגרף תקין (כולל החלפות)'); return }
-
-  var pvs=pp.map(function(p){return p.pct});
-  var minP2=Math.min.apply(null,[0].concat(pvs)), maxP2=Math.max.apply(null,[0].concat(pvs));
-  var rng2=maxP2-minP2||5;
-  var pad2={t:16,r:16,b:36,l:50};
-  var gW2=CW-pad2.l-pad2.r, gH2=CH-pad2.t-pad2.b;
-  function xS(i){return pad2.l+(pp.length>1?(i/(pp.length-1))*gW2:gW2/2)}
-  function yS2(v){return pad2.t+gH2-((v-minP2)/rng2)*gH2}
-
-  for(var i=0; i<=4; i++){
-    var y2=pad2.t+(gH2/4)*i, v2=maxP2-(rng2/4)*i;
-    ctx.strokeStyle='#2c2c2c'; ctx.lineWidth=1;
-    ctx.beginPath(); ctx.moveTo(pad2.l,y2); ctx.lineTo(pad2.l+gW2,y2); ctx.stroke();
-    ctx.fillStyle='#555'; ctx.font='10px Heebo'; ctx.textAlign='right';
-    ctx.fillText((v2>=0?'+':'')+v2.toFixed(1)+'%',pad2.l-4,y2+4);
-  }
-  ctx.fillStyle='#555'; ctx.font='10px Heebo'; ctx.textAlign='center';
-  [0,Math.floor(pp.length/2),pp.length-1].forEach(function(i){
-    var d=new Date(pp[i].d); ctx.fillText(d.getDate()+'/'+(d.getMonth()+1),xS(i),CH-8);
-  });
-  
-  ctx.strokeStyle='#444'; ctx.lineWidth=1; ctx.setLineDash([4,4]);
-  ctx.beginPath(); ctx.moveTo(pad2.l,yS2(0)); ctx.lineTo(pad2.l+gW2,yS2(0)); ctx.stroke();
-  ctx.setLineDash([]);
-  
-  ctx.beginPath();
-  pp.forEach(function(p,i){i===0?ctx.moveTo(xS(i),yS2(p.pct)):ctx.lineTo(xS(i),yS2(p.pct))});
-  ctx.lineTo(xS(pp.length-1),yS2(0)); ctx.lineTo(xS(0),yS2(0)); ctx.closePath();
-  var gr=ctx.createLinearGradient(0,pad2.t,0,pad2.t+gH2);
-  gr.addColorStop(0,'rgba(249,115,22,.35)'); gr.addColorStop(1,'rgba(249,115,22,0)');
-  ctx.fillStyle=gr; ctx.fill();
-  ctx.beginPath(); ctx.strokeStyle='#f97316'; ctx.lineWidth=2.5; ctx.lineJoin='round';
-  pp.forEach(function(p,i){i===0?ctx.moveTo(xS(i),yS2(p.pct)):ctx.lineTo(xS(i),yS2(p.pct))});
-  ctx.stroke();
-  
-  var mxP=Math.max.apply(null,pvs);
-  pp.forEach(function(p,i){
-    var x=xS(i),y=yS2(p.pct),isPR=p.pct===mxP&&p.pct>0;
-    ctx.beginPath(); ctx.arc(x,y,isPR?6:4,0,Math.PI*2);
-    ctx.fillStyle=isPR?'#fbbf24':'#f97316'; ctx.fill();
-    if(isPR){ctx.strokeStyle='#0d0d0d';ctx.lineWidth=2;ctx.beginPath();ctx.arc(x,y,6,0,Math.PI*2);ctx.stroke()}
-    
-    window.chartHitboxes.push({x:x, y:y, d:p.d, pct:p.pct, orig:p.orig, exId:selEx, prev: i>0?pp[i-1]:null, mode:'single'});
-    
-    if(pp.length<=6){
-      ctx.fillStyle='#aaa'; ctx.font='9px Heebo'; ctx.textAlign='center';
-      ctx.fillText((p.pct>=0?'+':'')+p.pct.toFixed(1)+'%',x,y-10);
-    }
-  });
-  
-  var prI=pvs.indexOf(mxP);
-  var prDate=new Date(pp[prI].d).toLocaleDateString('he-IL',{day:'numeric',month:'long'});
-  var last=pvs[pvs.length-1];
-  var modeLbl2=pgMode==='last'?'שיפור מאימון קודם':'שיפור מההתחלה';
-  var unit = (singleEx && singleEx.t==='time') ? ' שנ\'' : (singleEx && singleEx.t==='body') ? ' חז\'' : ' ק"ג';
-  
-  $('prbox').innerHTML='<div style="background:var(--s1);border:1px solid var(--bd);border-radius:10px;padding:12px;display:flex;align-items:center;justify-content:space-between">'+
-    '<div><div style="font-size:11px;color:var(--t3)">שיא שיפור — '+singleEx.n+'</div>'+
-    '<div style="font-size:11px;color:var(--t3);margin-top:2px">'+prDate+' · '+Math.round(pp[prI].orig)+unit+'</div>'+
-    '<div style="font-size:12px;color:var(--t2);margin-top:5px">'+modeLbl2+': <b style="color:'+(last>=0?'var(--ok)':'var(--red)')+'">'+(last>=0?'+':'')+last.toFixed(1)+'%</b></div></div>'+
-    '<div style="font-size:26px;font-weight:900;color:#fbbf24">🏆 '+mxP.toFixed(1)+'%</div></div>';
 }
 
 // fix13: גרף נפח נפרד לכל סוג אימון (A / B) — כל אחד עם ציר וגלילה משלו
@@ -4040,11 +3633,11 @@ function actualFreq(k){
   return n/4;
 }
 // סטים שבועיים לשריר. mode: 'plan' לפי התדירות המתוכננת · 'real' לפי הביצוע בפועל
-function calcWeeklySets(mode){
+function calcWeeklySets(mode, back){
   var map={};
   if(mode==='real'){
-    // הסטים שסומנו V בשבוע הקלנדרי הנוכחי בלבד (מתאפס ביום א')
-    var ws=weekStartTs(Date.now()), we=ws+7*24*3600*1000;
+    // הסטים שסומנו V בשבוע הקלנדרי הנבחר (ראשון–שבת). back=0 השבוע הנוכחי, 1 שבוע שעבר...
+    var ws=weekStartTs(Date.now())-(back||0)*7*24*3600*1000, we=ws+7*24*3600*1000;
     sessions.filter(function(s){ return s.start>=ws && s.start<we; }).forEach(function(s){
       Object.keys(s.sets||{}).forEach(function(exId){
         if(hasInvalidMuscle(exId)) return;
@@ -4074,9 +3667,25 @@ function calcWeeklySets(mode){
   return map;
 }
 
+// fix41: דפדוף בין שבועות בסטים השבועיים לשריר (חצים, אחורה ללא הגבלה, קדימה עד השבוע הנוכחי)
+var _wvBack = 0;
+function wvShift(dir){
+  // '‹' שבוע אחורה בזמן · '›' חזרה קדימה, לא מעבר לשבוע הנוכחי
+  _wvBack = Math.max(0, _wvBack - dir);
+  try{ renderWeeklyVolume(); }catch(e){ console.warn('weeklySets:', e); }
+}
+function wvWeekIsDeload(ws, we){
+  if(sessions.some(function(s){ return s.deload && s.start>=ws && s.start<we; })) return true;
+  var man=ld('deloadReset',0);
+  return !!man && man>=ws && man<we;
+}
 function renderWeeklyVolume(){
   var box=$('weeklyVolBox'); if(!box) return;
-  var plan=calcWeeklySets('plan'), real=calcWeeklySets('real');
+  var msWeek=7*24*3600*1000;
+  var wvWs=weekStartTs(Date.now())-_wvBack*msWeek, wvWe=wvWs+msWeek;
+  var wvDl=wvWeekIsDeload(wvWs, wvWe);
+  var wvLbl=_wvBack===0 ? 'השבוע' : (_wvBack===1 ? 'שבוע שעבר' : 'לפני '+_wvBack+' שבועות');
+  var plan=calcWeeklySets('plan'), real=calcWeeklySets('real', _wvBack);
   var names=Object.keys(plan);
   Object.keys(real).forEach(function(m){ if(names.indexOf(m)<0) names.push(m); });
   if(!names.length){ box.innerHTML=''; return; }
@@ -4103,11 +3712,21 @@ function renderWeeklyVolume(){
       +'</div></div>';
   }).join('');
 
-  box.innerHTML='<div style="background:var(--s1);border:1px solid var(--bd);border-radius:16px;padding:18px 16px">'
-    +'<div style="font-size:11px;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">סטים שבועיים לשריר · תכנון מול השבוע</div>'
+  var navBtn='width:30px;height:30px;flex:none;border-radius:9px;background:var(--s2);border:1px solid var(--bd);color:var(--tx);cursor:pointer;font-size:15px';
+  var nav='<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">'
+      +'<button onclick="wvShift(-1)" style="'+navBtn+'">‹</button>'
+      +'<div style="flex:1;text-align:center;border-radius:9px;padding:4px 0;'+(wvDl?'background:rgba(22,163,74,.14);border:1px solid rgba(134,201,160,.45)':'border:1px solid transparent')+'">'
+        +'<div style="font-size:13px;font-weight:800;color:'+(wvDl?'#86c9a0':'var(--acc2)')+'">'+(wvDl?'🌿 ':'')+_fmtDate(wvWs)+' – '+_fmtDate(wvWe-24*3600*1000)+'</div>'
+        +'<div style="font-size:10px;color:var(--t3);margin-top:1px">'+wvLbl+(wvDl?' · דילואד':'')+'</div>'
+      +'</div>'
+      +'<button onclick="wvShift(1)" '+(_wvBack===0?'disabled ':'')+'style="'+navBtn+';opacity:'+(_wvBack===0?'.3':'1')+'">›</button>'
+    +'</div>';
+  box.innerHTML='<div style="background:var(--s1);border:1px solid '+(wvDl?'rgba(134,201,160,.45)':'var(--bd)')+';border-radius:16px;padding:18px 16px">'
+    +'<div style="font-size:11px;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">סטים שבועיים לשריר · תכנון מול '+wvLbl+'</div>'
+    +nav
     +body
     +'<div style="font-size:9px;color:var(--t3);margin-top:10px;text-align:center">'
-      +'פס עליון = תכנון · פס תחתון = בוצע השבוע (מתאפס ביום א\') · 🟡 מתחת ל-10 · 🟢 10–20 · 🔴 מעל 20</div>'
+      +'פס עליון = תכנון · פס תחתון = בוצע בשבוע הנבחר (ראשון–שבת) · 🟡 מתחת ל-10 · 🟢 10–20 · 🔴 מעל 20</div>'
     +'</div>';
 }
 
