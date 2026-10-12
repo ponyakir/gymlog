@@ -640,6 +640,7 @@ canvas{width:100%;border-radius:var(--r);background:var(--s1);display:block}
     <div class="sc"><div class="st" style="color:var(--red)">איפוס</div>
       <button class="btn red" onclick="doReset()">מחק את כל הנתונים</button>
     </div>
+    <div id="appVerEl" style="font-size:11px;color:var(--t3);text-align:center;margin:14px 0 4px"></div>
   </div>
   <!-- ALERTS / TRANSITIONS -->
   <div class="view" id="vN">
@@ -724,6 +725,8 @@ canvas{width:100%;border-radius:var(--r);background:var(--s1);display:block}
 // DATA
 // ══════════════════════════════════════════════════════
 const STEP = 2.5;
+// fix42: מספר גרסה — לעדכן בכל שחרור (זהה ל-CACHE ב-sw.js)
+const APP_VER = '12.10.26';
 let P = null, wLog = [], sessions = [], curSess = null, curWkt = 'A', selEx = null;
 let tmrIv = null;
 let skipMode = false;
@@ -4322,7 +4325,18 @@ if('serviceWorker' in navigator){
   window.addEventListener('load',function(){
     navigator.serviceWorker.register('sw.js').catch(function(e){ console.warn('SW:',e); });
   });
+  // fix42: כשגרסה חדשה נכנסת — רענון אוטומטי פעם אחת (לא בהתקנה ראשונה ולא באמצע אימון)
+  (function(){
+    var hadCtl = !!navigator.serviceWorker.controller, reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', function(){
+      if(!hadCtl || reloaded) return;
+      if(curSess){ try{ toast('גרסה חדשה תיטען בפתיחה הבאה'); }catch(e){} return; }
+      reloaded = true;
+      location.reload();
+    });
+  })();
 }
+(function(){ var el=document.getElementById('appVerEl'); if(el) el.textContent='GymLog · גרסה '+APP_VER; })();
 </script>
 </body>
 </html>
