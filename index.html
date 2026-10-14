@@ -29,6 +29,11 @@ button,input,select{font-family:inherit}
 .ovl{position:fixed;inset:0;background:rgba(0,0,0,.88);backdrop-filter:blur(6px);z-index:500;display:flex;align-items:flex-end;justify-content:center;padding:0}
 .ovl.fadein{animation:ovlFade 1s ease-out}
 @keyframes ovlFade{from{opacity:0}to{opacity:1}}
+/* fix43: מחוון חיבור בכפתור הבית */
+#homeBtn{color:#c9a84c;transition:color .4s,filter .4s}
+#homeBtn.net-ok{color:#4ade80;filter:drop-shadow(0 0 4px rgba(74,222,128,.55))}
+#homeBtn.net-off{color:#eab308;animation:netBlink 1.1s ease-in-out infinite}
+@keyframes netBlink{0%,100%{opacity:1;filter:drop-shadow(0 0 4px rgba(234,179,8,.6))}50%{opacity:.25;filter:none}}
 #gaugesvg{cursor:pointer;transition:transform .15s}
 #gaugesvg:active{transform:scale(.97)}
 .insRow{cursor:pointer;transition:background .15s}
@@ -534,10 +539,10 @@ canvas{width:100%;border-radius:var(--r);background:var(--s1);display:block}
   <div style="display:flex; justify-content:space-between; align-items:center; position:relative; margin-bottom:12px;">
     <div><div class="logo">Gym<span style="background:linear-gradient(135deg,#c9a84c,#e8c96a);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text">Log</span></div><div class="datel" id="dateEl"></div></div>
     
-    <button onclick="goTo('Home')" style="position:absolute;left:50%;transform:translateX(-50%);background:none;border:none;cursor:pointer;padding:4px;line-height:1;top:0" title="דף הבית">
+    <button id="homeBtn" onclick="goTo('Home');netCheck()" style="position:absolute;left:50%;transform:translateX(-50%);background:none;border:none;cursor:pointer;padding:4px;line-height:1;top:0" title="דף הבית">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M3 10.5L12 3L21 10.5V20C21 20.55 20.55 21 20 21H15V15H9V21H4C3.45 21 3 20.55 3 20V10.5Z" stroke="#c9a84c" stroke-width="1.5" stroke-linejoin="round" fill="none"/>
-        <path d="M9 21V15H15V21" stroke="#c9a84c" stroke-width="1.5" stroke-linejoin="round"/>
+        <path d="M3 10.5L12 3L21 10.5V20C21 20.55 20.55 21 20 21H15V15H9V21H4C3.45 21 3 20.55 3 20V10.5Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" fill="none"/>
+        <path d="M9 21V15H15V21" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
       </svg>
     </button>
     <div style="width: 50px;"></div>
@@ -726,7 +731,7 @@ canvas{width:100%;border-radius:var(--r);background:var(--s1);display:block}
 // ══════════════════════════════════════════════════════
 const STEP = 2.5;
 // fix42: מספר גרסה — לעדכן בכל שחרור (זהה ל-CACHE ב-sw.js)
-const APP_VER = '12.10.26';
+const APP_VER = '14.10.26';
 let P = null, wLog = [], sessions = [], curSess = null, curWkt = 'A', selEx = null;
 let tmrIv = null;
 let skipMode = false;
@@ -2933,6 +2938,52 @@ function adjSets(id, delta){
   saveC(); renderWkt();
 }
 
+// fix43: השיא מהאימון הקודם של התרגיל (אותו מצב וריאנט). אימון רגיל מדלג על אימוני דילואד.
+function _exById(id){
+  return curWktEx().filter(function(e){return e.id===id})[0] || allEx().filter(function(e){return e.id===id})[0];
+}
+function peakPrevSet(id){
+  var ex=_exById(id);
+  if(!ex) return null;
+  var variant=(ex.variants&&ex.variants.length) ? getActiveVariant(id) : null;
+  var skipDl=!(curSess&&curSess.deload);
+  var t=ex.t||'kg';
+  function num(v){ var n=parseFloat(v); return isNaN(n)?0:n; }
+  function better(a,b){
+    var aw=num(a.w), bw=num(b.w), ar=num(a.r), br=num(b.r);
+    if(t==='kg') return aw!==bw ? aw>bw : ar>br;
+    return ar!==br ? ar>br : aw>bw; // גוף/זמן: חזרות/שניות קודם
+  }
+  var ss=sessByDate();
+  function scan(wkt){
+    for(var i=ss.length-1;i>=0;i--){
+      var s=ss[i];
+      if(curSess && s.start===curSess.start) continue;
+      if(wkt && s.wkt!==wkt) continue;
+      if(skipDl && s.deload) continue;
+      var d=((s.sets||{})[id]||[]).filter(function(x){ return x.done && (variant ? x.v===variant : !x.v); });
+      if(!d.length) continue;
+      return d.reduce(function(b,x){ return better(x,b)?x:b; }, d[0]);
+    }
+    return null;
+  }
+  return scan(curWkt) || scan(null);
+}
+function addPeakSet(id){
+  if(skipMode) return;
+  var sets=ensureSets(id); if(!sets) return;
+  var ex=_exById(id);
+  if(!ex) return;
+  var pk=peakPrevSet(id);
+  var ns = pk ? {w:parseFloat(pk.w)||0, r:String(pk.r||''), done:false}
+              : {w:defW(ex,curWkt), r:lastR(id,curWkt)||'', done:false};
+  var v=(ex.variants&&ex.variants.length) ? getActiveVariant(id) : null;
+  if(v) ns.v=v;
+  sets.push(ns);
+  saveC(); renderWkt();
+  try{ toast('נוסף סט: '+(ex.t==='kg' ? ns.w+' ק"ג × '+(ns.r||'—') : (ns.r||'—')+(ex.t==='time'?' שנ\'':' חזרות'))); }catch(e){}
+}
+
 var chgExId=null;
 function openChgEx(id){
   var ex = allEx().filter(function(x){ return x.id===id; })[0];
@@ -3520,6 +3571,13 @@ function renderWkt(){
         '</div>'+
       '</div>'+
       '<div class="sets">'+rows+'</div>'+
+      // fix43: "+" מתחת לכל תרגיל — מוסיף סט עם השיא מהאימון הקודם
+      ((hasSess && !skipMode) ? (function(){
+        function pb(x, lbl){
+          return '<button onclick="addPeakSet(\''+x.id+'\')" style="flex:1;padding:7px 0;border-radius:10px;background:transparent;border:1px dashed var(--bd);color:var(--acc);font-size:13px;font-weight:800;cursor:pointer">+'+(lbl?' '+lbl:'')+'</button>';
+        }
+        return '<div style="display:flex;gap:6px;margin-top:6px">'+(ssEx ? pb(ex, ex.n)+pb(ssEx, ssEx.n) : pb(ex, ''))+'</div>';
+      })() : '')+
       (hasSess&&curSess.sets[ex.id]?'<div id="vol_'+ex.id+'" style="font-size:10px;color:var(--t2);margin-top:6px;text-align:left;letter-spacing:.3px"></div>':'');
     list.appendChild(card);
   });
@@ -4337,6 +4395,56 @@ if('serviceWorker' in navigator){
   })();
 }
 (function(){ var el=document.getElementById('appVerEl'); if(el) el.textContent='GymLog · גרסה '+APP_VER; })();
+
+// fix43: מחוון חיבור בכפתור הבית + נעילת גרסה
+// ירוק = הגיטהאב זמין והגרסה עדכנית · צהוב מהבהב = אין חיבור / לא הצליח למשוך
+// גרסה שונה בשרת → רענון אוטומטי (לא באמצע אימון ולא כשחלון פתוח)
+var _netBusy=false, _verPending=null;
+function _netSet(st){
+  var b=document.getElementById('homeBtn'); if(!b) return;
+  b.classList.remove('net-ok','net-off');
+  if(st) b.classList.add('net-'+st);
+  b.title = st==='ok' ? 'מחובר · גרסה '+APP_VER : (st==='off' ? 'אין חיבור לשרת' : 'דף הבית');
+}
+function _anyOvlOpen(){
+  var l=document.querySelectorAll('.ovl');
+  for(var i=0;i<l.length;i++){ if(l[i].style.display && l[i].style.display!=='none') return true; }
+  return false;
+}
+function _tryVerReload(){
+  if(!_verPending || curSess || _anyOvlOpen() || document.visibilityState!=='visible') return;
+  try{
+    var k='verReload_'+_verPending, last=parseInt(sessionStorage.getItem(k)||'0',10);
+    if(Date.now()-last < 120000) return; // הגנה מלולאת רענונים
+    sessionStorage.setItem(k, String(Date.now()));
+  }catch(e){}
+  location.reload();
+}
+function netCheck(){
+  if(_netBusy) return;
+  if(navigator.onLine===false){ _netSet('off'); return; }
+  _netBusy=true;
+  var ctl = ('AbortController' in window) ? new AbortController() : null;
+  var to = setTimeout(function(){ try{ ctl && ctl.abort(); }catch(e){} }, 7000);
+  fetch('index.html?netcheck='+Date.now(), {cache:'no-store', signal: ctl?ctl.signal:undefined})
+    .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.text(); })
+    .then(function(txt){
+      _netSet('ok');
+      var m=txt.match(/const APP_VER = '([^']+)'/);
+      if(m && m[1]!==APP_VER){ _verPending=m[1]; _tryVerReload(); }
+    })
+    .catch(function(){ _netSet('off'); })
+    .then(function(){ clearTimeout(to); _netBusy=false; });
+}
+window.addEventListener('online', netCheck);
+window.addEventListener('offline', function(){ _netSet('off'); });
+document.addEventListener('visibilitychange', function(){ if(document.visibilityState==='visible') netCheck(); });
+setInterval(function(){
+  if(document.visibilityState!=='visible') return;
+  if(_verPending) _tryVerReload();
+  netCheck();
+}, 60000);
+setTimeout(netCheck, 800);
 </script>
 </body>
 </html>
