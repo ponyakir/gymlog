@@ -731,7 +731,7 @@ canvas{width:100%;border-radius:var(--r);background:var(--s1);display:block}
 // ══════════════════════════════════════════════════════
 const STEP = 2.5;
 // fix42: מספר גרסה — לעדכן בכל שחרור (זהה ל-CACHE ב-sw.js)
-const APP_VER = '14.10.26';
+const APP_VER = '23.10.26';
 let P = null, wLog = [], sessions = [], curSess = null, curWkt = 'A', selEx = null;
 let tmrIv = null;
 let skipMode = false;
@@ -2131,12 +2131,19 @@ function drawInsights(){
           pos.push({text:'התרגיל שהשתפר הכי הרבה החודש: '+improvers[0].name+' (+'+improvers[0].pct.toFixed(1)+'%)', kind:'bestImprove', data:{list:improvers.slice(0,6)}});
       }
 
-      // ── איזון A/B — חיובי כשמאוזן, לשיפור כשלא
-      var cA=monthSess.filter(function(s){return s.wkt==='A';}).length;
-      var cB=monthSess.filter(function(s){return s.wkt==='B';}).length;
-      if(cA+cB>=4){
-          if(Math.abs(cA-cB)<=1) pos.push({text:'איזון טוב בין התוכניות החודש: '+cA+' אימוני A, '+cB+' אימוני B', kind:'abBal', data:{a:cA,b:cB,bal:true}});
-          else neg.push({text:'חוסר איזון החודש: '+cA+' אימוני A מול '+cB+' אימוני B', kind:'abBal', data:{a:cA,b:cB,bal:false}});
+      // ── fix44: איזון בין כל התוכניות, ביחס לתדירות המתוכננת של כל אחת
+      var bKeys=planKeys();
+      if(bKeys.length>=2){
+          var fSum=0; bKeys.forEach(function(k){ fSum+=(WKT[k].freq||1); });
+          var bTot=0, bRows=[];
+          bKeys.forEach(function(k){ var c=monthSess.filter(function(s){return s.wkt===k;}).length; bTot+=c; bRows.push({k:k, name:WKT[k].name||'', freq:WKT[k].freq||1, cnt:c}); });
+          if(bTot>=4){
+              bRows.forEach(function(r){ r.exp=bTot*r.freq/fSum; r.gap=r.cnt-r.exp; });
+              var behind=bRows.filter(function(r){ return r.gap<=-1.5; }).sort(function(a,b){ return a.gap-b.gap; });
+              var cntTxt=bRows.map(function(r){ return r.k+' '+r.cnt; }).join(' · ');
+              if(!behind.length) pos.push({text:'איזון טוב בין התוכניות החודש: '+cntTxt, kind:'abBal', data:{rows:bRows, bal:true}});
+              else neg.push({text:'חוסר איזון החודש: '+cntTxt+' — '+behind.map(function(r){return r.k;}).join(', ')+' מתחת לתכנון', kind:'abBal', data:{rows:bRows, bal:false}});
+          }
       }
 
       // ── לשיפור: תרגילים תקועים (פעילים החודש, שיא בן 3+ שבועות)
@@ -2182,13 +2189,18 @@ function drawInsights(){
       planKeys().forEach(function(wkt){
           var planSess=monthSess.filter(function(s){return s.wkt===wkt && !s.deload;});
           if(planSess.length<3) return;
-          vEx.filter(function(e){return e.id.charAt(0)===wkt;}).forEach(function(ex){
+          // fix44: לפי השיוך האמיתי לתוכנית (לא לפי האות הראשונה במזהה), ורק אימונים מאז שהתרגיל נוצר
+          (WKT[wkt].ex||[]).forEach(function(ex){
+              if(hasInvalidMuscle(ex.id)) return;
+              var mTs=String(ex.id).match(/(\d{13})$/), created=mTs?parseInt(mTs[1],10):0;
+              var elig=planSess.filter(function(s){ return s.start>=created; });
+              if(elig.length<3) return;
               var miss=0;
-              planSess.forEach(function(s){
+              elig.forEach(function(s){
                   var done=((s.sets||{})[ex.id]||[]).filter(function(x){return x.done;}).length;
                   if(!done) miss++;
               });
-              if(miss/planSess.length>=0.5) skipped.push({name:ex.n, miss:miss, total:planSess.length, wkt:wkt});
+              if(miss/elig.length>=0.5) skipped.push({name:ex.n, miss:miss, total:elig.length, wkt:wkt});
           });
       });
       if(skipped.length){
@@ -2223,8 +2235,8 @@ function drawInsights(){
   function secHtml(title, arr, off, clr, moreId){
     if(!arr.length) return '';
     var h='<div style="font-size:10px;font-weight:700;color:'+clr+';text-transform:uppercase;letter-spacing:.8px;margin:10px 0 4px">'+title+'</div>';
-    arr.forEach(function(i,k){ h+=rowHtml(i, off+k, k>=3?moreId:'', clr); });
-    if(arr.length>3) h+='<button id="btn_'+moreId+'" onclick="togIns(\''+moreId+'\')" style="width:100%;margin-top:4px;background:none;border:1px dashed var(--bd);color:var(--t3);border-radius:8px;font-size:11px;padding:6px;cursor:pointer">הצג עוד ('+(arr.length-3)+')</button>';
+    // fix44: כל הנקודות מוצגות — בלי "הצג עוד"
+    arr.forEach(function(i,k){ h+=rowHtml(i, off+k, '', clr); });
     return h;
   }
 
@@ -2255,11 +2267,12 @@ function buildBestImproveDetail(d){
 }
 
 function buildAbBalDetail(d){
-  var html=_explain(d.bal?'תדירות דומה בין שתי התוכניות שומרת על התפתחות אחידה של פלג גוף עליון ותחתון.':'פער של 2+ אימונים בין התוכניות עלול ליצור התפתחות לא אחידה. שקול לתעדף את התוכנית שנשארה מאחור.')+
-    _section('30 הימים האחרונים')+
-    _row('אימוני A (עליון)', d.a)+
-    _row('אימוני B (תחתון)', d.b)+
-    _row('פער', Math.abs(d.a-d.b));
+  var html=_explain(d.bal?'כל תוכנית בוצעה בערך לפי התדירות המתוכננת שלה, כך שכל השרירים מקבלים עבודה אחידה.':'תוכנית שבוצעה פחות מהתכנון (פער של 1.5 אימונים ומעלה) משאירה שרירים מאחור. שקול לתעדף אותה בשבוע הקרוב.')+
+    _section('30 הימים האחרונים · בוצע מול צפוי');
+  (d.rows||[]).forEach(function(r){
+    var clr = r.gap<=-1.5 ? '#f59e0b' : 'var(--ok2)';
+    html+=_row('תוכנית '+r.k+(r.name?' ('+r.name+')':'')+' · '+r.freq+'× בשבוע', '<span style="color:'+clr+'">'+r.cnt+'</span> / '+(Math.round(r.exp*10)/10));
+  });
   return html;
 }
 
@@ -2994,7 +3007,15 @@ function openChgEx(id){
   chgName.value = ex.n || '';
   chgType.value = ex.t || 'kg';
   chgSets.value = ex.s || 3;
-  chgW.value = ex.w != null ? ex.w : '';
+  // fix44: השדה מציג את המשקל האחרון שבוצע (לא המשקל מיום יצירת התרגיל)
+  chgW.value = (function(){
+    if((ex.t||'kg')!=='kg') return ex.w != null ? ex.w : ''; // גוף/זמן: המשקל הוא תוספת — לא נמשך מהיסטוריה
+    var k = planKeys().filter(function(pk){ return (WKT[pk].ex||[]).some(function(e){ return e.id===id; }); })[0] || null;
+    var lw = (ex.variants && ex.variants.length) ? lastWByVariant(id, k, null) : lastW(id, k);
+    if(lw===null && k) lw = lastW(id, null);
+    if(lw!==null && lw>0) return lw;
+    return ex.w != null ? ex.w : '';
+  })();
   chgReps.value = ex.r || '';
   if($('chgVariants')) $('chgVariants').value = (ex.variants && ex.variants.length) ? ex.variants.join(', ') : '';
 
@@ -3732,7 +3753,7 @@ function calcWeeklySets(mode, back){
 var _wvBack = 0;
 function wvShift(dir){
   // '‹' שבוע אחורה בזמן · '›' חזרה קדימה, לא מעבר לשבוע הנוכחי
-  _wvBack = Math.max(0, _wvBack - dir);
+  _wvBack = Math.max(0, (_wvBack||0) - dir);
   try{ renderWeeklyVolume(); }catch(e){ console.warn('weeklySets:', e); }
 }
 function wvWeekIsDeload(ws, we){
@@ -3742,6 +3763,8 @@ function wvWeekIsDeload(ws, we){
 }
 function renderWeeklyVolume(){
   var box=$('weeklyVolBox'); if(!box) return;
+  // fix44: בפתיחת האפליקציה התיבה מצוירת לפני שהמונה אותחל (Invalid Date) — ברירת מחדל 0
+  if(typeof _wvBack!=='number' || isNaN(_wvBack)) _wvBack = 0;
   var msWeek=7*24*3600*1000;
   var wvWs=weekStartTs(Date.now())-_wvBack*msWeek, wvWe=wvWs+msWeek;
   var wvDl=wvWeekIsDeload(wvWs, wvWe);
@@ -4445,6 +4468,16 @@ setInterval(function(){
   netCheck();
 }, 60000);
 setTimeout(netCheck, 800);
+// fix44: "לחיצה" אוטומטית על כפתור הבית 2 שניות אחרי פתיחה — רענון דף הבית ובדיקת חיבור.
+// אם פתוח מסך אחר (למשל אימון פעיל) — רק מרענן את נתוני הבית בלי להעביר מסך.
+setTimeout(function(){
+  try{
+    if(!P) return;
+    var home=document.getElementById('vHome');
+    if(home && home.classList.contains('on')) goTo('Home'); else renderHome();
+  }catch(e){ console.warn('autoHome:', e); }
+  netCheck();
+}, 2000);
 </script>
 </body>
 </html>
