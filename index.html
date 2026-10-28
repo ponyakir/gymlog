@@ -731,7 +731,7 @@ canvas{width:100%;border-radius:var(--r);background:var(--s1);display:block}
 // ══════════════════════════════════════════════════════
 const STEP = 2.5;
 // fix42: מספר גרסה — לעדכן בכל שחרור (זהה ל-CACHE ב-sw.js)
-const APP_VER = '23.10.26';
+const APP_VER = '25.10.26';
 let P = null, wLog = [], sessions = [], curSess = null, curWkt = 'A', selEx = null;
 let tmrIv = null;
 let skipMode = false;
@@ -2743,9 +2743,22 @@ function drawVolChart(wkt){
     if(g>0) ctx.fillText(gv>=1000?(gv/1000)+'K':String(gv), pad.l+gW+4, gy+3);
   }
 
-  // חיתוך: ברים חלקיים לא יגלשו מחוץ לאזור הגרף
+  // fix45: בלי clip ובלי roundRect — ב-Chrome של הטלפון השילוב הזה הפסיק לצייר את העמודות.
+  // ברים חלקיים בקצוות נחתכים ידנית לגבולות אזור הגרף.
   ctx.save();
-  ctx.beginPath(); ctx.rect(pad.l,0,gW,CH); ctx.clip();
+  var xL=pad.l, xR=pad.l+gW;
+  function barPath(bx,by,bw,bhh,r){
+    r=Math.max(0,Math.min(r,bw/2,bhh/2));
+    ctx.beginPath();
+    ctx.moveTo(bx+r,by);
+    ctx.lineTo(bx+bw-r,by);
+    ctx.quadraticCurveTo(bx+bw,by,bx+bw,by+r);
+    ctx.lineTo(bx+bw,by+bhh);
+    ctx.lineTo(bx,by+bhh);
+    ctx.lineTo(bx,by+r);
+    ctx.quadraticCurveTo(bx,by,bx+r,by);
+    ctx.closePath();
+  }
 
   for(var j=j0;j<=j1;j++){
     var s=list[j];
@@ -2753,6 +2766,8 @@ function drawVolChart(wkt){
     var bh=Math.max(3,(v/topV)*gH);
     var x=pad.l+gap+(barW+gap)*(j-firstF);
     var y=pad.t+gH-bh;
+    var cx0=Math.max(x,xL), cx1=Math.min(x+barW,xR);
+    if(!(cx1>cx0) || !isFinite(bh) || !isFinite(y)) continue;
 
     var isPeak=(j===peakIdx);
     var grad=ctx.createLinearGradient(0,y,0,y+bh);
@@ -2764,13 +2779,13 @@ function drawVolChart(wkt){
       grad.addColorStop(1,'#1a3a7a');
     }
     ctx.fillStyle=grad;
-    ctx.beginPath();
-    if(ctx.roundRect){ ctx.roundRect(x,y,barW,bh,3); } else { ctx.rect(x,y,barW,bh); }
+    barPath(cx0,y,cx1-cx0,bh,(cx1-cx0)>=barW-0.5?3:0);
     ctx.fill();
+    var inside = (x>=xL-0.5 && x+barW<=xR+0.5); // תוויות רק לבר שלם
 
     // אות סוג אימון (A/B) + עלה אם דילואד — בתוך הבר בראש
     var lbl = s.deload ? '🌿' : '';
-    if(lbl){
+    if(lbl && inside){
       ctx.font='bold 8px Heebo';
       ctx.textAlign='center';
       ctx.fillStyle='rgba(255,255,255,.92)';
@@ -2780,9 +2795,11 @@ function drawVolChart(wkt){
       ctx.fillText(lbl, x+barW/2, lblY);
     }
 
-    ctx.fillStyle='#555'; ctx.font='8px Heebo'; ctx.textAlign='center';
-    var d=new Date(s.start);
-    ctx.fillText(d.getDate()+'/'+(d.getMonth()+1),x+barW/2,CH-8);
+    if(inside){
+      ctx.fillStyle='#555'; ctx.font='8px Heebo'; ctx.textAlign='center';
+      var d=new Date(s.start);
+      ctx.fillText(d.getDate()+'/'+(d.getMonth()+1),x+barW/2,CH-8);
+    }
   }
   ctx.restore();
 

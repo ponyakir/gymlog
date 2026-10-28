@@ -1,7 +1,7 @@
 // GymLog service worker — network-first
 // קבצי האפליקציה נטענים תמיד מהרשת; המטמון משמש רק כשאין אינטרנט.
 // בכל שחרור: לעדכן את CACHE (אותו מספר כמו APP_VER ב-index.html).
-const CACHE = 'gymlog-23.10.26';
+const CACHE = 'gymlog-25.10.26';
 const CORE = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', function(e){
