@@ -470,6 +470,7 @@ canvas{width:100%;border-radius:var(--r);background:var(--s1);display:block}
       </div>
     </div>
     <div id="chgGearNote" style="font-size:10px;color:var(--t3);margin:-4px 0 10px">משמש לחישוב המשקל האמיתי בגרף הנפח</div>
+    <div id="chgSsPlace" style="display:none;margin-bottom:12px"></div>
 
     <label class="lbl">וריאנטים / ציוד (מופרד בפסיק, אופציונלי)</label>
     <input class="inp" id="chgVariants" placeholder="סמית, מכונה, משקולות">
@@ -731,7 +732,7 @@ canvas{width:100%;border-radius:var(--r);background:var(--s1);display:block}
 // ══════════════════════════════════════════════════════
 const STEP = 2.5;
 // fix42: מספר גרסה — לעדכן בכל שחרור (זהה ל-CACHE ב-sw.js)
-const APP_VER = '25.10.26';
+const APP_VER = '03.11.26';
 let P = null, wLog = [], sessions = [], curSess = null, curWkt = 'A', selEx = null;
 let tmrIv = null;
 let skipMode = false;
@@ -3015,6 +3016,50 @@ function addPeakSet(id){
 }
 
 var chgExId=null;
+// fix45: עורך מיקום הסופרסט
+var _chgSsAt=null;
+function ssHostOf(ssEx){
+  var res=null;
+  planKeys().forEach(function(k){
+    if(res) return;
+    var arr=WKT[k].ex||[], i=arr.findIndex(function(e){ return e.id===ssEx.id; });
+    if(i<0) return;
+    res = arr.filter(function(e){ return e.id===ssEx.ss; })[0] || arr[i-1] || null;
+  });
+  return res;
+}
+function renderSsPlace(){
+  var box=$('chgSsPlace'); if(!box||!_chgSsAt) return;
+  var ex=allEx().filter(function(x){ return x.id===chgExId; })[0];
+  var host=ex?ssHostOf(ex):null; if(!host) return;
+  var hostN=parseInt(host.s,10)||1, last=hostN-1;
+  var btn='background:var(--s1);border:1px solid rgba(200,70,70,.4);color:#e08a8a;border-radius:6px;width:30px;height:26px;font-size:12px;cursor:pointer';
+  var h='<label class="lbl">מיקום הסופרסט בין הסטים</label>'
+    +'<div style="background:var(--s2);border:1px solid var(--bd);border-radius:10px;padding:6px">';
+  for(var i=0;i<hostN;i++){
+    h+='<div style="font-size:12px;color:var(--t2);padding:6px 8px">סט '+(i+1)+' · '+host.n+'</div>';
+    for(var j=0;j<_chgSsAt.length;j++){
+      if(_chgSsAt[j]!==i) continue;
+      var up=i>0, dn=i<last;
+      h+='<div style="display:flex;align-items:center;gap:6px;padding:5px 8px;margin:2px 0;border-radius:8px;background:rgba(200,70,70,.12);border-inline-start:2px solid rgba(200,70,70,.6)">'
+        +'<span style="flex:1;font-size:12px;font-weight:700;color:#e08a8a">🔗 '+ex.n+' · סט '+(j+1)+'</span>'
+        +'<button type="button" style="'+btn+';opacity:'+(up?1:.25)+'" '+(up?'':'disabled ')+'onclick="moveSsSet('+j+',-1)">▲</button>'
+        +'<button type="button" style="'+btn+';opacity:'+(dn?1:.25)+'" '+(dn?'':'disabled ')+'onclick="moveSsSet('+j+',1)">▼</button>'
+        +'</div>';
+    }
+  }
+  h+='</div><div style="font-size:10px;color:var(--t3);margin-top:4px">חל על כל האימונים מהיום · נשמר בלחיצה על "שמור שינויים"</div>';
+  box.innerHTML=h;
+}
+function moveSsSet(j,dir){
+  if(!_chgSsAt) return;
+  var ex=allEx().filter(function(x){ return x.id===chgExId; })[0];
+  var host=ex?ssHostOf(ex):null; if(!host) return;
+  var last=(parseInt(host.s,10)||1)-1;
+  _chgSsAt[j]=Math.max(0, Math.min(last, _chgSsAt[j]+dir));
+  _chgSsAt.sort(function(a,b){ return a-b; });
+  renderSsPlace();
+}
 function openChgEx(id){
   var ex = allEx().filter(function(x){ return x.id===id; })[0];
   if(!ex) return;
@@ -3064,6 +3109,26 @@ function openChgEx(id){
     $('chgRest').style.opacity = ex.ss ? '.45' : '1';
   }
   if(_rn) _rn.textContent = ex.ss ? 'סופרסט — ללא מנוחה. סוג המנוף משפיע על גרף הנפח.' : 'משמש לחישוב המשקל האמיתי בגרף הנפח';
+  // fix45: עורך מיקום הסופרסט בין סטי המארח
+  _chgSsAt = null;
+  var _sp = $('chgSsPlace');
+  if(_sp){
+    var _host = ex.ss ? ssHostOf(ex) : null;
+    if(_host){
+      _chgSsAt = ssSlots(ex, parseInt(_host.s,10)||1, parseInt(ex.s,10)||1);
+      _sp.style.display = 'block';
+      renderSsPlace();
+      chgSets.oninput = function(){
+        var h=ssHostOf(ex); if(!h) return;
+        var n=Math.max(1, parseInt(chgSets.value,10)||1);
+        _chgSsAt = ssSlots({ssAt:_chgSsAt}, parseInt(h.s,10)||1, n);
+        renderSsPlace();
+      };
+    } else {
+      _sp.style.display = 'none'; _sp.innerHTML = '';
+      chgSets.oninput = null;
+    }
+  }
   // fix18: כפתור הסופרסט מוצג רק כשרלוונטי
   var _ssB = $('chgSsBtn');
   if(_ssB){
@@ -3127,6 +3192,12 @@ function doChgEx(){
   ex.r = newReps;
   ex.muscle = muscles.join(',');
   if(!ex.ss) ex.rest = newRest; // fix26: בסופרסט המנוחה תמיד 0
+  // fix45: שמירת מיקום הסופרסט. ברירת מחדל לא נשמרת — כך היא ממשיכה להתאים את עצמה.
+  if(ex.ss && _chgSsAt){
+    var _h45 = ssHostOf(ex), _hn = _h45 ? (parseInt(_h45.s,10)||1) : 1;
+    var _sl = ssSlots({ssAt:_chgSsAt}, _hn, newSets);
+    if(ssIsDefault(_sl, _hn)) delete ex.ssAt; else ex.ssAt = _sl;
+  }
 
   // fix26: סוג מנוף → מקדם משקל אמיתי.
   // תיוג ראשון = השלמת מידע חסר, חל על כל ההיסטוריה.
@@ -3478,6 +3549,32 @@ function updTabs(){
 }
 
 // fix21: בניית שורת סט בודדת — משמשת גם לתרגיל האב וגם לסופרסט המקוננן
+// fix45: מיקום סטי הסופרסט בין סטי התרגיל המארח.
+// ssEx.ssAt[j] = אחרי איזה סט של המארח (0 = הראשון) בא סט j של הסופרסט.
+// בלי ssAt — ברירת המחדל הישנה: סט סופרסט אחרי כל סט, עודפים אחרי האחרון.
+// מוגבל תמיד למספר הסטים בפועל, ושומר על סדר עולה.
+function ssSlots(ssEx, hostN, ssN){
+  var at = (ssEx && Array.isArray(ssEx.ssAt) && ssEx.ssAt.length) ? ssEx.ssAt : null;
+  var last = Math.max(0, hostN-1), out = [], prev = 0;
+  for(var j=0;j<ssN;j++){
+    var v;
+    if(at) v = (at[j]!=null) ? at[j] : last; // סט שנוסף מעבר לתכנון — אחרי הסט האחרון
+    else   v = Math.min(j, last);
+    v = parseInt(v,10); if(isNaN(v)) v = last;
+    v = Math.max(prev, Math.min(last, Math.max(0, v)));
+    out.push(v); prev = v;
+  }
+  return out;
+}
+function ssIsDefault(slots, hostN){
+  var last=Math.max(0,hostN-1);
+  return slots.every(function(v,j){ return v===Math.min(j,last); });
+}
+function ssPlaceTxt(slots){
+  var u=[]; slots.forEach(function(v){ if(u.indexOf(v+1)<0) u.push(v+1); });
+  return (u.length===1 ? 'אחרי סט ' : 'אחרי סטים ')+u.join(', ');
+}
+
 function buildSetRow(ex, i, hasSess, isSuper){
   var isKg=ex.t==='kg', isTime=ex.t==='time';
   var sd = hasSess ? (curSess.sets[ex.id]||[])[i] : null;
@@ -3541,10 +3638,12 @@ function renderWkt(){
     // fix21: הסטים של הסופרסט משתלבים אחרי כל סט של תרגיל האב — כרטיס אחד
     var ssNum = ssEx ? ((hasSess&&curSess.sets[ssEx.id])?curSess.sets[ssEx.id].length:ssEx.s) : 0;
     var rows = '';
-    var maxN = Math.max(numSets, ssNum);
-    for(var i=0;i<maxN;i++){
-      if(i<numSets) rows += buildSetRow(ex, i, hasSess, false);
-      if(ssEx && i<ssNum) rows += buildSetRow(ssEx, i, hasSess, true);
+    // fix45: כל סט סופרסט מוצג מיד אחרי סט המארח שנקבע לו בתוכנית
+    var _slots = ssEx ? ssSlots(ssEx, numSets, ssNum) : [];
+    if(numSets===0){ for(var j0=0;j0<ssNum;j0++) rows += buildSetRow(ssEx, j0, hasSess, true); }
+    for(var i=0;i<numSets;i++){
+      rows += buildSetRow(ex, i, hasSess, false);
+      for(var j=0;j<_slots.length;j++){ if(_slots[j]===i) rows += buildSetRow(ssEx, j, hasSess, true); }
     }
 
     var hasVariants = ex.variants && ex.variants.length > 0;
@@ -3957,7 +4056,8 @@ function _pdfPlanHtml(wkt){
       var rTxt = e.t==='time' ? (e.r||'')+' שנ\'' : (e.r||'');
       return '<tr'+(isSS?' class="ss"':'')+'>'
         +'<td class="num">'+(isSS?'🔗':n)+'</td>'
-        +'<td class="nm">'+(isSS?'<span class="sst">סופרסט</span> ':'')+e.n+'</td>'
+        +'<td class="nm">'+(isSS?'<span class="sst">סופרסט</span> ':'')+e.n
+          +(isSS?' <span style="font-weight:400;color:#a55">('+ssPlaceTxt(ssSlots(e, parseInt(ex.s,10)||1, parseInt(e.s,10)||1))+')</span>':'')+'</td>'
         +'<td>'+e.s+'</td><td>'+rTxt+'</td><td>'+wTxt+'</td>'
         +'<td>'+(isSS?'ללא':(e.rest||0)+' שנ\'')+'</td>'
         +'<td class="mus">'+(e.muscle||'')+'</td>'
@@ -4064,7 +4164,8 @@ function renderEdit(){
       ssRow.style.cssText='padding:8px 12px 10px 12px;margin-inline-start:14px;background:rgba(200,70,70,.09);border-top:1px solid rgba(200,70,70,.22);cursor:pointer';
       ssRow.innerHTML='<div style="font-size:10px;color:#e08a8a;font-weight:700;letter-spacing:.4px;margin-bottom:2px">🔗 סופרסט · ללא מנוחה</div>'
         +'<div style="font-weight:700;font-size:14px">'+ssTypeLbl+' '+ssEx.n+'</div>'
-        +'<div style="font-size:11px;color:var(--t3);margin-top:2px">'+ssEx.s+' סטים × '+ssEx.r+(exCoefAt(ssEx,Date.now())!==1?' · ×'+exCoefAt(ssEx,Date.now()):'')+(ssEx.muscle?' · '+ssEx.muscle:'')+'</div>';
+        +'<div style="font-size:11px;color:var(--t3);margin-top:2px">'+ssEx.s+' סטים × '+ssEx.r+(exCoefAt(ssEx,Date.now())!==1?' · ×'+exCoefAt(ssEx,Date.now()):'')+(ssEx.muscle?' · '+ssEx.muscle:'')+'</div>'
+        +'<div style="font-size:11px;color:#e08a8a;margin-top:2px">📍 '+ssPlaceTxt(ssSlots(ssEx, parseInt(ex.s,10)||1, parseInt(ssEx.s,10)||1))+'</div>';
       ssRow.onclick=(function(id){return function(e){
         e.stopPropagation();
         tapFlash(ssRow, function(){ openChgEx(id); });
@@ -4076,6 +4177,7 @@ function renderEdit(){
 }
 
 function moveEx(wkt,idx,dir){
+  if(moveEx._busy) return;
   var arr=WKT[wkt].ex, ni=idx+dir;
   if(ni<0||ni>=arr.length) return;
   // fix17: הצמד לא נפרד — תרגיל עם סופרסט נע יחד איתו, וסופרסט לא נשלף מהצמד
@@ -4084,7 +4186,10 @@ function moveEx(wkt,idx,dir){
     // מזיזים זוג שלם
     var pair=arr.splice(idx,2);
     var dest = dir<0 ? Math.max(0,idx-1) : Math.min(arr.length, idx+1);
-    if(dir>0 && arr[dest] && arr[dest].ss) dest++; // דלג מעל זוג שכן שלם
+    // fix45: לא לנחות בתוך זוג שכן — מדלגים מעליו בשלמותו לשני הכיוונים
+    if(dir<0 && arr[dest] && arr[dest].ss) dest--;
+    if(dir>0 && arr[dest] && arr[dest].ss) dest++;
+    dest = Math.max(0, Math.min(arr.length, dest));
     arr.splice.apply(arr,[dest,0].concat(pair));
     saveEx(); renderEdit(); return;
   }
@@ -4099,8 +4204,20 @@ function moveEx(wkt,idx,dir){
     }
     return;
   }
+  // fix45: תרגיל בודד שיורד מעל זוג — עובר מתחת לזוג כולו, לא נכנס בין המארח לסופרסט
+  if(dir>0 && tgt && arr[ni+1] && arr[ni+1].ss){
+    arr.splice(idx,1); arr.splice(idx+2,0,cur);
+    saveEx(); renderEdit(); return;
+  }
+  // מיפוי לאינדקס השורה במסך (שורות הסופרסט מקוננות ולא נספרות)
+  function _domIdx(k){ var c=0; for(var q=0;q<k;q++) if(!arr[q].ss) c++; return c; }
   var rows=$('editExList').children;
-  var rowA=rows[idx], rowB=rows[ni];
+  var rowA=rows[_domIdx(idx)], rowB=rows[_domIdx(ni)];
+  // fix45: ההחלפה נעשית מיד בנתונים, ולחיצות בזמן האנימציה נחסמות —
+  // קודם לחיצה כפולה מהירה ביצעה החלפה על אינדקסים ישנים ופירקה זוגות
+  var tmp=arr[idx]; arr[idx]=arr[ni]; arr[ni]=tmp;
+  saveEx();
+  moveEx._busy=true;
   if(rowA&&rowB){
     var style='transition:transform 0.2s ease,opacity 0.2s ease';
     rowA.style.cssText+=(';'+style);
@@ -4110,8 +4227,8 @@ function moveEx(wkt,idx,dir){
     rowA.style.opacity='0.4'; rowB.style.opacity='0.4';
   }
   setTimeout(function(){
-    var tmp=arr[idx]; arr[idx]=arr[ni]; arr[ni]=tmp;
-    saveEx(); renderEdit();
+    moveEx._busy=false;
+    renderEdit();
   },180);
 }
 
