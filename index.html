@@ -732,7 +732,7 @@ canvas{width:100%;border-radius:var(--r);background:var(--s1);display:block}
 // ══════════════════════════════════════════════════════
 const STEP = 2.5;
 // fix42: מספר גרסה — לעדכן בכל שחרור (זהה ל-CACHE ב-sw.js)
-const APP_VER = '03.11.26';
+const APP_VER = '03.11.26b';
 let P = null, wLog = [], sessions = [], curSess = null, curWkt = 'A', selEx = null;
 let tmrIv = null;
 let skipMode = false;
@@ -1675,18 +1675,29 @@ function weekStartTs(ts){
 // fix13: השבוע הנוכחי מתחיל בזכות מלאה (100%) ויורד רק כשכבר לא ניתן
 // להשלים את היעד בימים שנותרו — לא נכשלים מראש ביום ראשון בבוקר.
 function daysLeftInWeek(){ return 7-new Date().getDay(); } // כולל היום
-function calcRolling(){
-  var perWeek=getMonthlyTarget()/4; 
-  var msWeek=7*24*3600*1000, ws0=weekStartTs(Date.now());
-  var done=0, expected=0, dLeft=daysLeftInWeek();
-  for(var w=0;w<4;w++){
-    var wStart=ws0-w*msWeek;
-    var wEnd=wStart+msWeek;
-    var cnt=sessions.filter(function(s){return s.start>=wStart&&s.start<wEnd;}).length;
-    // שבוע נוכחי: הפוטנציאל עדיין נספר · שבועות שהסתיימו: התוצאה בפועל
-    done+=(w===0) ? Math.min(perWeek, cnt+dLeft) : Math.min(cnt,perWeek);
-    expected+=perWeek;
+// fix46: שבוע דילואד (אימון שסומן דילואד או איפוס ידני) יוצא מכל החישובים
+function isDlWeek(ws){ return wvWeekIsDeload(ws, ws+7*24*3600*1000); }
+// 4 השבועות הרגילים האחרונים (שבועות דילואד מדולגים ומוצגים בנפרד)
+function consistencyWeeks(){
+  var perWeek=getMonthlyTarget()/4, msW=7*24*3600*1000, ws0=weekStartTs(Date.now()), dLeft=daysLeftInWeek();
+  var out=[], counted=0;
+  for(var w=0; w<12 && counted<4; w++){
+    var a=ws0-w*msW, e=a+msW;
+    var cnt=sessions.filter(function(s){ return s.start>=a && s.start<e; }).length;
+    var row={idx:w, start:a, end:e, count:cnt, live:(w===0), deload:isDlWeek(a)};
+    if(!row.deload){
+      // שבוע נוכחי: הפוטנציאל עדיין נספר · שבועות שהסתיימו: התוצאה בפועל
+      row.done   = row.live ? Math.min(perWeek, cnt+dLeft) : Math.min(cnt, perWeek);
+      row.missed = row.live ? Math.max(0, perWeek-(cnt+dLeft)) : Math.max(0, perWeek-cnt);
+      counted++;
+    }
+    out.push(row);
   }
+  return {perWeek:perWeek, weeks:out};
+}
+function calcRolling(){
+  var cw=consistencyWeeks(), done=0, expected=0;
+  cw.weeks.forEach(function(r){ if(r.deload) return; done+=r.done; expected+=cw.perWeek; });
   var pct=expected>0 ? Math.round(done/expected*100) : 0;
   return {count:done, target:expected, pct:pct};
 }
@@ -2081,7 +2092,7 @@ function drawGauge(){
     '<text x="186" y="112" fill="#444" font-size="8" font-family="Heebo" text-anchor="middle">100%</text>'+
     '<text x="100" y="20" fill="#444" font-size="8" font-family="Heebo" text-anchor="middle">50%</text>'+
     '<text x="100" y="126" fill="'+fillColor+'" font-size="20" font-weight="700" font-family="Heebo" text-anchor="middle">'+pct+'%</text>'+
-    '<text x="100" y="140" fill="#7a7a8a" font-size="8" font-family="Heebo" text-anchor="middle">'+rolling.count+'/'+rolling.target+' אימונים · 30 יום</text>'+
+    '<text x="100" y="140" fill="#7a7a8a" font-size="8" font-family="Heebo" text-anchor="middle">'+rolling.count+'/'+rolling.target+' אימונים · 4 שבועות</text>'+
     '</svg>';
 }
 
@@ -2092,135 +2103,177 @@ function drawInsights(){
 
   var now=Date.now(), msDay=24*3600*1000, msWeek=7*msDay, m1start=now-30*msDay, w1start=now-msWeek;
 
+  // fix46: כל ההשוואות על אימונים ושבועות רגילים בלבד — דילואד לא נכלל.
+  // לכל נקודה ציון חוזק (sc); מוצגות 3 החזקות בכל קטגוריה.
   try {
       var vEx=allEx().filter(function(e){return !hasInvalidMuscle(e.id);});
+      var dlStart={}; sessions.forEach(function(s){ if(s.deload) dlStart[s.start]=1; });
+      function dlW(ts){ return isDlWeek(weekStartTs(ts)); }
+      function normalPt(pt){ return !dlStart[pt.d] && !dlW(pt.d); }
+      // השבוע הראשון אחרי דילואד — חזרה הדרגתית, לא נחשב נסיגה
+      function postDl(ts){ return isDlWeek(weekStartTs(ts)-msWeek); }
+      // חלון: 4 השבועות הרגילים האחרונים (כולל השבוע הנוכחי)
+      var ws0=weekStartTs(now), regWeeks=[];
+      for(var _w=0; _w<12 && regWeeks.length<4; _w++){ var _a=ws0-_w*msWeek; if(!isDlWeek(_a)) regWeeks.push(_a); }
+      var winStart = regWeeks.length ? regWeeks[regWeeks.length-1] : m1start;
+      var doneWeeks = regWeeks.filter(function(a){ return a!==ws0; }); // שבועות רגילים שהסתיימו
       var hists={};
-      vEx.forEach(function(ex){ hists[ex.id]=getExHistory(ex.id); });
-      var monthSess=sessions.filter(function(s){return s.start>=m1start;});
+      vEx.forEach(function(ex){ hists[ex.id]=getExHistory(ex.id).filter(normalPt); });
+      var winSess=sessions.filter(function(s){ return s.start>=winStart && !s.deload && !dlW(s.start); });
+      function names(list){ var t=list.slice(0,2).map(function(p){return p.name;}).join(', '); return list.length>2 ? t+' ועוד' : t; }
 
       // ── חיובי: שיאים שנשברו השבוע
       var prsData=[];
       vEx.forEach(function(ex){
           var hist=hists[ex.id]; if(hist.length<2) return;
-          var maxW=0, prDate=0, prRow=null;
-          hist.forEach(function(pt){ if(pt.w>maxW){maxW=pt.w;prDate=pt.d;prRow=pt;} });
-          if(prDate>=w1start && maxW>0){
-              var prevMax=0, prevRow=null, prRow=null;
-              hist.forEach(function(pt){
-                  if(pt.d===prDate) prRow=pt;
-                  if(pt.d<prDate&&pt.w>prevMax){prevMax=pt.w;prevRow=pt;}
-              });
-              prsData.push({name:ex.n, newW:maxW, newD:prDate, newMW:prRow?prRow.mw:0, newMR:prRow?prRow.mr:0, prevW:prevMax, prevD:prevRow?prevRow.d:0, prevMW:prevRow?prevRow.mw:0, prevMR:prevRow?prevRow.mr:0});
-          }
+          var maxW=0, prDate=0;
+          hist.forEach(function(pt){ if(pt.w>maxW){maxW=pt.w;prDate=pt.d;} });
+          if(prDate<w1start || maxW<=0) return;
+          var prevMax=0, prevRow=null, prRow=null;
+          hist.forEach(function(pt){
+              if(pt.d===prDate) prRow=pt;
+              if(pt.d<prDate&&pt.w>prevMax){prevMax=pt.w;prevRow=pt;}
+          });
+          if(!prevRow) return; // ביצוע ראשון אינו שבירת שיא
+          prsData.push({name:ex.n, newW:maxW, newD:prDate, newMW:prRow?prRow.mw:0, newMR:prRow?prRow.mr:0, prevW:prevMax, prevD:prevRow.d, prevMW:prevRow.mw, prevMR:prevRow.mr});
       });
-      if(prsData.length){
-          var nms=prsData.slice(0,2).map(function(p){return p.name;}).join(', ');
-          if(prsData.length>2) nms+=' ועוד';
-          pos.push({text:'שברת השבוע שיאי עבודה: '+nms, kind:'prs', data:{prs:prsData}});
-      }
+      if(prsData.length) pos.push({sc:90+prsData.length, text:'שברת השבוע שיאי עבודה: '+names(prsData), kind:'prs', data:{prs:prsData}});
 
-      // ── חיובי: התרגיל שהשתפר הכי הרבה החודש
+      // ── חיובי: התרגיל שהשתפר הכי הרבה (קפיצה מעל 40% = טעות נתונים / החלפת תרגיל)
       var improvers=[];
       vEx.forEach(function(ex){
-          var inWin=hists[ex.id].filter(function(p){return p.d>=m1start;});
-          if(inWin.length<2) return;
+          var inWin=hists[ex.id].filter(function(p){return p.d>=winStart;});
+          if(inWin.length<3) return;
           var first=inWin[0], last=inWin[inWin.length-1];
-          if(first.w>0) improvers.push({name:ex.n, pct:(last.w-first.w)/first.w*100, firstD:first.d, lastD:last.d, n:inWin.length});
+          if(first.w<=0) return;
+          var pct=(last.w-first.w)/first.w*100;
+          if(pct>40) return;
+          improvers.push({name:ex.n, pct:pct, firstD:first.d, lastD:last.d, n:inWin.length});
       });
       improvers.sort(function(a,b){return b.pct-a.pct;});
-      if(improvers.length && improvers[0].pct>1){
-          pos.push({text:'התרגיל שהשתפר הכי הרבה החודש: '+improvers[0].name+' (+'+improvers[0].pct.toFixed(1)+'%)', kind:'bestImprove', data:{list:improvers.slice(0,6)}});
+      if(improvers.length && improvers[0].pct>=2)
+          pos.push({sc:60+Math.min(improvers[0].pct,25), text:'התרגיל שהשתפר הכי הרבה: '+improvers[0].name+' (+'+improvers[0].pct.toFixed(1)+'%)', kind:'bestImprove', data:{list:improvers.slice(0,6)}});
+
+      // ── חיובי: עקביות (שבועות רגילים בלבד)
+      var roll=calcRolling();
+      if(roll.pct>=90) pos.push({sc:roll.pct>=100?80:65, text:(roll.pct>=100?'עמדת ביעד האימונים בכל השבועות הרגילים':'עקביות גבוהה: '+roll.pct+'% מהיעד'), kind:'consist', data:{}});
+
+      // ── סטים לשריר מול התכנון — ממוצע שבועי על שבועות רגילים שהסתיימו
+      var plan=calcWeeklySets('plan'), musc=[];
+      if(doneWeeks.length>=2){
+          var take=doneWeeks.slice(0,3), sum={};
+          take.forEach(function(a){
+              var back=Math.round((ws0-a)/msWeek), r=calcWeeklySets('real', back);
+              Object.keys(r).forEach(function(m){ sum[m]=(sum[m]||0)+r[m]; });
+          });
+          Object.keys(plan).forEach(function(m){
+              if(!(plan[m]>=1)) return;
+              var avg=(sum[m]||0)/take.length;
+              musc.push({m:m, plan:plan[m], avg:Math.round(avg*10)/10, ratio:avg/plan[m]});
+          });
+          musc.sort(function(a,b){ return a.ratio-b.ratio; });
+          var mData={list:musc, weeks:take.length};
+          var okM=musc.filter(function(x){ return x.ratio>=0.9; });
+          if(musc.length && okM.length===musc.length)
+              pos.push({sc:75, text:'כל השרירים עומדים בתכנון הסטים השבועי', kind:'muscPlan', data:mData});
+          else if(musc.length && okM.length/musc.length>=0.7)
+              pos.push({sc:55, text:okM.length+' מתוך '+musc.length+' שרירים עומדים בתכנון הסטים השבועי', kind:'muscPlan', data:mData});
+          var low=musc.filter(function(x){ return x.ratio<0.8; });
+          if(low.length)
+              neg.push({sc:50+Math.round((1-low[0].ratio)*40), text:low[0].m+' מתחת לתכנון: '+low[0].avg+' סטים בשבוע מול '+low[0].plan+(low.length>1?' (ועוד '+(low.length-1)+')':''), kind:'muscLow', data:mData});
       }
 
-      // ── fix44: איזון בין כל התוכניות, ביחס לתדירות המתוכננת של כל אחת
+      // ── איזון בין התוכניות, ביחס לתדירות המתוכננת
       var bKeys=planKeys();
       if(bKeys.length>=2){
           var fSum=0; bKeys.forEach(function(k){ fSum+=(WKT[k].freq||1); });
           var bTot=0, bRows=[];
-          bKeys.forEach(function(k){ var c=monthSess.filter(function(s){return s.wkt===k;}).length; bTot+=c; bRows.push({k:k, name:WKT[k].name||'', freq:WKT[k].freq||1, cnt:c}); });
+          bKeys.forEach(function(k){ var c=winSess.filter(function(s){return s.wkt===k;}).length; bTot+=c; bRows.push({k:k, name:WKT[k].name||'', freq:WKT[k].freq||1, cnt:c}); });
           if(bTot>=4){
               bRows.forEach(function(r){ r.exp=bTot*r.freq/fSum; r.gap=r.cnt-r.exp; });
               var behind=bRows.filter(function(r){ return r.gap<=-1.5; }).sort(function(a,b){ return a.gap-b.gap; });
               var cntTxt=bRows.map(function(r){ return r.k+' '+r.cnt; }).join(' · ');
-              if(!behind.length) pos.push({text:'איזון טוב בין התוכניות החודש: '+cntTxt, kind:'abBal', data:{rows:bRows, bal:true}});
-              else neg.push({text:'חוסר איזון החודש: '+cntTxt+' — '+behind.map(function(r){return r.k;}).join(', ')+' מתחת לתכנון', kind:'abBal', data:{rows:bRows, bal:false}});
+              if(!behind.length) pos.push({sc:50, text:'איזון טוב בין התוכניות: '+cntTxt, kind:'abBal', data:{rows:bRows, bal:true}});
+              else neg.push({sc:45+Math.round(-behind[0].gap*5), text:'חוסר איזון: '+cntTxt+' — '+behind.map(function(r){return r.k;}).join(', ')+' מתחת לתכנון', kind:'abBal', data:{rows:bRows, bal:false}});
           }
       }
 
-      // ── לשיפור: תרגילים תקועים (פעילים החודש, שיא בן 3+ שבועות)
+      // ── לשיפור: נסיגה — שני האימונים האחרונים נמוכים ביותר מ-5% מהשיא בחלון
+      var regress=[], regIds={};
+      vEx.forEach(function(ex){
+          var inWin=hists[ex.id].filter(function(p){return p.d>=winStart;});
+          if(inWin.length<3) return;
+          var l2=inWin.slice(-2);
+          if(l2.some(function(p){ return postDl(p.d); })) return;
+          var peak=0, peakD=0;
+          inWin.slice(0,-2).forEach(function(p){ if(p.w>peak){peak=p.w;peakD=p.d;} });
+          if(peak<=0) return;
+          var drop=Math.max(l2[0].w,l2[1].w)/peak-1;
+          if(drop<=-0.05){ regress.push({name:ex.n, pct:drop*100, peakD:peakD, lastD:l2[1].d}); regIds[ex.id]=1; }
+      });
+      regress.sort(function(a,b){ return a.pct-b.pct; });
+      if(regress.length) neg.push({sc:70+Math.min(-regress[0].pct,20), text:'נסיגה בביצוע: '+names(regress), kind:'regress', data:{list:regress}});
+
+      // ── לשיפור: תקוע — אין שיא ב-3 שבועות אימון רגילים, עם לפחות 3 אימונים מאז
       var stuck=[];
       vEx.forEach(function(ex){
-          var hist=hists[ex.id]; if(hist.length<3) return;
-          if(hist.filter(function(p){return p.d>=m1start;}).length<2) return;
+          if(regIds[ex.id]) return;
+          var hist=hists[ex.id]; if(hist.length<4) return;
+          if(hist.filter(function(p){return p.d>=winStart;}).length<2) return;
           var maxW=0, prDate=0;
           hist.forEach(function(pt){ if(pt.w>maxW){maxW=pt.w;prDate=pt.d;} });
-          if(now-prDate>21*msDay){
+          var since=hist.filter(function(p){ return p.d>prDate; }).length;
+          var wk=0; for(var a=weekStartTs(prDate)+msWeek; a<ws0; a+=msWeek){ if(!isDlWeek(a)) wk++; }
+          if(wk>=3 && since>=3){
               var last=hist[hist.length-1];
-              stuck.push({name:ex.n, peakD:prDate, lastD:last.d, pct:maxW>0?(last.w-maxW)/maxW*100:0});
+              stuck.push({name:ex.n, peakD:prDate, lastD:last.d, weeks:wk, pct:maxW>0?(last.w-maxW)/maxW*100:0});
           }
       });
       if(stuck.length){
-          stuck.sort(function(a,b){return a.pct-b.pct;});
-          var snm=stuck.slice(0,2).map(function(p){return p.name;}).join(', ');
-          if(stuck.length>2) snm+=' ועוד';
-          neg.push({text:'ללא שיא חדש מעל 3 שבועות: '+snm, kind:'stuck', data:{list:stuck}});
-      }
-
-      // ── לשיפור: השריר שקיבל הכי מעט עבודה החודש
-      if(monthSess.length>=4){
-          var mSets={};
-          getMuscleGroups().forEach(function(m){ mSets[m]=0; });
-          monthSess.forEach(function(s){
-              Object.keys(s.sets||{}).forEach(function(id){
-                  if(hasInvalidMuscle(id)) return;
-                  var dn=(s.sets[id]||[]).filter(function(x){return x.done;}).length;
-                  if(!dn) return;
-                  resolveMuscles(id).forEach(function(m){ if(m in mSets) mSets[m]+=dn; });
-              });
-          });
-          var mkeys=Object.keys(mSets);
-          if(mkeys.length>=2){
-              mkeys.sort(function(a,b){return mSets[a]-mSets[b];});
-              neg.push({text:'השריר שקיבל הכי מעט עבודה החודש: '+mkeys[0]+' ('+mSets[mkeys[0]]+' סטים)', kind:'neglect', data:{sets:mSets, order:mkeys}});
-          }
+          stuck.sort(function(a,b){ return b.weeks-a.weeks; });
+          neg.push({sc:60+Math.min(stuck[0].weeks*3,20), text:'ללא שיא חדש ב-3 שבועות אימון ומעלה: '+names(stuck), kind:'stuck', data:{list:stuck}});
       }
 
       // ── לשיפור: תרגילים שמדולגים ברוב האימונים
       var skipped=[];
       planKeys().forEach(function(wkt){
-          var planSess=monthSess.filter(function(s){return s.wkt===wkt && !s.deload;});
+          var planSess=winSess.filter(function(s){return s.wkt===wkt;});
           if(planSess.length<3) return;
-          // fix44: לפי השיוך האמיתי לתוכנית (לא לפי האות הראשונה במזהה), ורק אימונים מאז שהתרגיל נוצר
           (WKT[wkt].ex||[]).forEach(function(ex){
               if(hasInvalidMuscle(ex.id)) return;
               var mTs=String(ex.id).match(/(\d{13})$/), created=mTs?parseInt(mTs[1],10):0;
               var elig=planSess.filter(function(s){ return s.start>=created; });
               if(elig.length<3) return;
               var miss=0;
-              elig.forEach(function(s){
-                  var done=((s.sets||{})[ex.id]||[]).filter(function(x){return x.done;}).length;
-                  if(!done) miss++;
-              });
+              elig.forEach(function(s){ if(!((s.sets||{})[ex.id]||[]).some(function(x){return x.done;})) miss++; });
               if(miss/elig.length>=0.5) skipped.push({name:ex.n, miss:miss, total:elig.length, wkt:wkt});
           });
       });
       if(skipped.length){
           skipped.sort(function(a,b){return (b.miss/b.total)-(a.miss/a.total);});
-          var knm=skipped.slice(0,2).map(function(p){return p.name;}).join(', ');
-          if(skipped.length>2) knm+=' ועוד';
-          neg.push({text:'דילגת ברוב האימונים על: '+knm, kind:'skipped', data:{list:skipped}});
+          neg.push({sc:55+Math.round(skipped[0].miss/skipped[0].total*20), text:'דילגת ברוב האימונים על: '+names(skipped), kind:'skipped', data:{list:skipped}});
       }
 
-      // ── לשיפור (גיבוי): ירידה בתדירות
-      var c14=sessions.filter(function(s){return s.start>=now-14*msDay;}).length;
-      var p14=sessions.filter(function(s){return s.start>=now-28*msDay && s.start<now-14*msDay;}).length;
-      var lastGap=(now-sessions[sessions.length-1].start)/msDay;
-      if(lastGap>=7) neg.push({text:'עברו '+Math.floor(lastGap)+' ימים מהאימון האחרון', kind:'freq', data:{c14:c14,p14:p14,gap:Math.floor(lastGap)}});
-      else if(p14>=2 && c14<p14-1) neg.push({text:'התדירות ירדה: '+c14+' אימונים ב-14 יום, מול '+p14+' בשבועיים שלפני', kind:'freq', data:{c14:c14,p14:p14,gap:Math.floor(lastGap)}});
+      // ── לשיפור: תדירות — בין שבועות רגילים בלבד
+      var lastSt=Math.max.apply(null, sessions.map(function(s){return s.start;}));
+      var lastGap=(now-lastSt)/msDay, gapHasDl=false;
+      for(var a2=weekStartTs(lastSt); a2<=ws0; a2+=msWeek){ if(isDlWeek(a2)) gapHasDl=true; }
+      function wCnt(a){ return sessions.filter(function(s){ return s.start>=a && s.start<a+msWeek; }).length; }
+      var fw=doneWeeks.map(wCnt);
+      var fData={weeks:doneWeeks.slice(0,4).map(function(a,i){return {a:a,c:fw[i]};}), gap:Math.floor(lastGap)};
+      if(lastGap>=7 && !gapHasDl){
+          neg.push({sc:85, text:'עברו '+Math.floor(lastGap)+' ימים מהאימון האחרון', kind:'freq', data:fData});
+      } else if(fw.length>=4){
+          var rec=(fw[0]+fw[1])/2, prv=(fw[2]+fw[3])/2;
+          if(rec<=prv-1.5) neg.push({sc:65, text:'התדירות ירדה: '+rec+' אימונים בשבוע מול '+prv+' קודם', kind:'freq', data:fData});
+      }
 
   } catch(e) {
       console.error("Insights Error:", e);
   }
+  // fix46: 3 החזקות מכל קטגוריה
+  pos.sort(function(a,b){ return b.sc-a.sc; }); pos=pos.slice(0,3);
+  neg.sort(function(a,b){ return b.sc-a.sc; }); neg=neg.slice(0,3);
 
   if(!pos.length && !neg.length) { box.innerHTML=''; window._insightsArr=[]; return; }
 
@@ -2242,7 +2295,7 @@ function drawInsights(){
   }
 
   box.innerHTML='<div style="background:var(--s1);border:1px solid var(--bd);border-radius:16px;padding:16px;margin-top:4px">'+
-    '<div style="font-size:10px;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px">ניתוח נתונים (30 ימים)</div>'+
+    '<div style="font-size:10px;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px">ניתוח נתונים (4 שבועות אימון · ללא דילואד)</div>'+
     secHtml('נקודות חיוביות', pos, 0, 'var(--ok2)', 'posX')+
     secHtml('נקודות לשיפור', neg, pos.length, '#f59e0b', 'negX')+
     '</div>';
@@ -2257,8 +2310,8 @@ function togIns(id){
 }
 
 function buildBestImproveDetail(d){
-  var html=_explain('השיפור נמדד בציון 1RM משוערך (Epley) — ההשוואה היא בין הביצוע הראשון לאחרון ב-30 הימים האחרונים.')+
-    _section('דירוג שיפור חודשי');
+  var html=_explain('השיפור נמדד בציון 1RM משוערך (Epley), בין הביצוע הראשון לאחרון ב-4 שבועות האימון הרגילים האחרונים. אימוני דילואד לא נכללים, נדרשים לפחות 3 אימונים, וקפיצה מעל 40% נפסלת כטעות נתונים או החלפת תרגיל.')+
+    _section('דירוג שיפור');
   d.list.forEach(function(p){
     var clr=p.pct>=0?'var(--ok2)':'var(--red)';
     html+=_row(p.name+' <span style="color:var(--t3);font-size:11px">('+p.n+' אימונים)</span>',
@@ -2269,7 +2322,7 @@ function buildBestImproveDetail(d){
 
 function buildAbBalDetail(d){
   var html=_explain(d.bal?'כל תוכנית בוצעה בערך לפי התדירות המתוכננת שלה, כך שכל השרירים מקבלים עבודה אחידה.':'תוכנית שבוצעה פחות מהתכנון (פער של 1.5 אימונים ומעלה) משאירה שרירים מאחור. שקול לתעדף אותה בשבוע הקרוב.')+
-    _section('30 הימים האחרונים · בוצע מול צפוי');
+    _section('4 שבועות אימון · בוצע מול צפוי');
   (d.rows||[]).forEach(function(r){
     var clr = r.gap<=-1.5 ? '#f59e0b' : 'var(--ok2)';
     html+=_row('תוכנית '+r.k+(r.name?' ('+r.name+')':'')+' · '+r.freq+'× בשבוע', '<span style="color:'+clr+'">'+r.cnt+'</span> / '+(Math.round(r.exp*10)/10));
@@ -2278,27 +2331,37 @@ function buildAbBalDetail(d){
 }
 
 function buildStuckDetail(d){
-  var html=_explain('תרגיל נחשב "תקוע" אם התאמנת בו החודש אבל השיא שלו (1RM משוערך) בן יותר מ-3 שבועות. אפשרויות: העלאת משקל קטנה, שינוי טווח חזרות, או דילואד ממוקד.')+
+  var html=_explain('תרגיל "תקוע": השיא שלו (1RM משוערך) לא נשבר ב-3 שבועות אימון רגילים ומעלה, והיו לפחות 3 אימונים מאז. שבועות דילואד לא נספרים. אפשרויות: העלאת משקל קטנה, שינוי טווח חזרות, או החלפת וריאנט.')+
     _section('פירוט');
   d.list.forEach(function(p){
     var clr=p.pct>=0?'var(--ok2)':'var(--red)';
     html+=_row(p.name,
-      'שיא: '+_fmtDate(p.peakD)+' · <span style="color:'+clr+'">'+(p.pct>=0?'+':'')+p.pct.toFixed(1)+'%</span>');
+      'שיא: '+_fmtDate(p.peakD)+' · '+(p.weeks||'?')+' שב\' · <span style="color:'+clr+'">'+(p.pct>=0?'+':'')+p.pct.toFixed(1)+'%</span>');
   });
   return html;
 }
 
-function buildNeglectDetail(d){
-  var html=_explain('ספירת סטים שהושלמו לכל קבוצת שריר ב-30 הימים האחרונים. תרגיל שממופה לכמה שרירים נספר בכולם.')+
-    _section('סטים לפי שריר (מהנמוך לגבוה)');
-  d.order.forEach(function(m,i){
-    html+=_row((i===0?'⚠️ ':'')+m, d.sets[m]+' סטים');
+function buildRegressDetail(d){
+  var html=_explain('שני האימונים האחרונים בתרגיל נמוכים ביותר מ-5% מהשיא שלו ב-4 שבועות האימון האחרונים. אימוני דילואד והשבוע הראשון אחריו לא נבדקים. סיבות נפוצות: עייפות מצטברת, שינה, תזונה או טכניקה.')+
+    _section('פירוט');
+  d.list.forEach(function(p){
+    html+=_row(p.name, 'שיא: '+_fmtDate(p.peakD)+' · <span style="color:var(--red)">'+p.pct.toFixed(1)+'%</span>');
+  });
+  return html;
+}
+
+function buildMuscDetail(d){
+  var html=_explain('ממוצע הסטים השבועי לכל שריר ב-'+d.weeks+' שבועות האימון הרגילים האחרונים שהסתיימו, מול התכנון (סטים בתוכנית × תדירות). שבועות דילואד לא נכללים. ירוק = 90% ומעלה, כתום = 80–90%, אדום = מתחת ל-80%.')+
+    _section('בוצע בממוצע מול מתוכנן');
+  d.list.forEach(function(x){
+    var clr = x.ratio>=0.9 ? 'var(--ok2)' : x.ratio>=0.8 ? '#f59e0b' : 'var(--red)';
+    html+=_row(x.m, '<span style="color:'+clr+'">'+x.avg+'</span> / '+x.plan+' <span style="color:var(--t3);font-size:11px">('+Math.round(x.ratio*100)+'%)</span>');
   });
   return html;
 }
 
 function buildSkippedDetail(d){
-  var html=_explain('תרגילים שלא בוצע בהם אף סט ב-50% או יותר מאימוני התוכנית שלהם החודש (לא כולל דילואד). אם תרגיל כבר לא רלוונטי — שקול להחליף אותו.')+
+  var html=_explain('תרגילים שלא בוצע בהם אף סט ב-50% או יותר מאימוני התוכנית שלהם ב-4 שבועות האימון האחרונים (לא כולל דילואד). אם תרגיל כבר לא רלוונטי — שקול להחליף אותו.')+
     _section('פירוט');
   d.list.forEach(function(p){
     html+=_row(p.name+' <span style="color:var(--t3);font-size:11px">(תוכנית '+p.wkt+')</span>', 'דולג ב-'+p.miss+' מתוך '+p.total);
@@ -2307,11 +2370,10 @@ function buildSkippedDetail(d){
 }
 
 function buildFreqDetail(d){
-  var html=_explain('השוואת מספר אימונים בין 14 הימים האחרונים ל-14 שלפניהם.')+
-    _section('תדירות')+
-    _row('14 ימים אחרונים', d.c14+' אימונים')+
-    _row('14 הימים שלפני', d.p14+' אימונים')+
-    _row('ימים מאז האימון האחרון', d.gap);
+  var html=_explain('מספר האימונים בשבועות הרגילים האחרונים שהסתיימו (ראשון עד שבת). שבועות דילואד לא נכללים בהשוואה.')+
+    _section('אימונים בשבוע');
+  (d.weeks||[]).forEach(function(w){ html+=_row(_fmtDate(w.a)+' – '+_fmtDate(w.a+6*24*3600*1000), w.c+' אימונים'); });
+  html+=_row('ימים מאז האימון האחרון', d.gap);
   return html;
 }
 
@@ -2337,7 +2399,7 @@ function _explain(txt){
 function openInsight(idx){
   var arr = window._insightsArr || [];
   var ins = arr[idx]; if(!ins) return;
-  $('insKicker').textContent = 'תובנה · ניתוח 30 יום';
+  $('insKicker').textContent = 'תובנה · 4 שבועות אימון';
   $('insTitle').textContent = ins.text;
   var body = '';
   try {
@@ -2352,6 +2414,9 @@ function openInsight(idx){
     else if(ins.kind === 'neglect') body = buildNeglectDetail(ins.data);
     else if(ins.kind === 'skipped') body = buildSkippedDetail(ins.data);
     else if(ins.kind === 'freq') body = buildFreqDetail(ins.data);
+    else if(ins.kind === 'regress') body = buildRegressDetail(ins.data);
+    else if(ins.kind === 'muscPlan' || ins.kind === 'muscLow') body = buildMuscDetail(ins.data);
+    else if(ins.kind === 'consist') body = buildGaugeDetail(calcRolling());
     else body = '<div style="color:var(--t3);text-align:center;padding:20px">אין פירוט נוסף</div>';
   } catch(e){
     console.error('Insight detail error:', e);
@@ -2492,7 +2557,7 @@ function buildMonthVolDetail(d){
 function openGaugeDetail(){
   if(!sessions.length) return;
   var rolling = calcRolling();
-  $('insKicker').textContent = 'עקביות 30 יום';
+  $('insKicker').textContent = 'עקביות · 4 שבועות רגילים';
   $('insTitle').textContent = 'אחוז עקביות: '+rolling.pct+'%';
   var body = buildGaugeDetail(rolling);
   $('insBody').innerHTML = body;
@@ -2500,64 +2565,58 @@ function openGaugeDetail(){
 }
 
 function buildGaugeDetail(rolling){
-  var target = getMonthlyTarget();
-  var perWeek = target/4;
-  var now = Date.now(), msWeek = 7*24*3600*1000, ws0 = weekStartTs(now);
-  var weeks = [];
-  for(var w=0; w<4; w++){
-    var wStart = ws0-w*msWeek;
-    var wEnd = wStart+msWeek;
-    var cnt = sessions.filter(function(s){return s.start>=wStart&&s.start<wEnd;}).length;
-    // fix13: בשבוע הנוכחי החמצה נספרת רק על מה שכבר בלתי אפשרי להשלים
-    var miss = (w===0) ? Math.max(0, perWeek-(cnt+daysLeftInWeek())) : Math.max(0,perWeek-cnt);
-    weeks.push({idx:w, start:wStart, end:wEnd, count:cnt, missed:miss, live:(w===0)});
-  }
-  // השבוע החלש ביותר
-  var weakestIdx = 0, weakestMissed = -1;
-  weeks.forEach(function(w,i){ if(w.missed>weakestMissed){ weakestMissed=w.missed; weakestIdx=i; } });
-  // רצף נוכחי של ימים ללא אימון
+  // fix46: שבועות דילואד מוצגים אך לא נכללים בחישוב
+  var cw = consistencyWeeks(), perWeek = cw.perWeek, target = getMonthlyTarget();
+  var now = Date.now();
+  var weeks = cw.weeks, reg = weeks.filter(function(w){ return !w.deload; });
+  var weakest = null;
+  reg.forEach(function(w){ if(w.missed>0 && (!weakest || w.missed>weakest.missed)) weakest=w; });
   var sortedSess = sessions.slice().sort(function(a,b){return b.start-a.start;});
   var lastSess = sortedSess[0] ? sortedSess[0].start : null;
   var daysSince = lastSess ? Math.floor((now-lastSess)/(24*3600*1000)) : null;
-  
-  var totalMissed = weeks.reduce(function(a,w){return a+w.missed;},0);
-  var totalDone = weeks.reduce(function(a,w){return a+w.count;},0);
+  var totalMissed = reg.reduce(function(a,w){return a+w.missed;},0);
+  var totalDone = reg.reduce(function(a,w){return a+w.count;},0);
+  var nDl = weeks.length - reg.length;
+  function lbl(w){ return w.idx===0?('השבוע · נותרו '+daysLeftInWeek()+' ימים'):w.idx===1?'שבוע שעבר':'לפני '+(w.idx+1)+' שבועות'; }
 
-  var html = _explain('המדד מחשב לפי יעד שבועי של '+perWeek.toFixed(1)+' אימונים ('+target+' לחודש ÷ 4). השבועות נספרים מיום ראשון עד שבת. השבוע הנוכחי מתחיל ב-100% ויורד רק אם כבר לא נותרו מספיק ימים להשלים את היעד.');
-  
+  var html = _explain('יעד שבועי של '+perWeek.toFixed(1)+' אימונים ('+target+' לחודש ÷ 4), על פני 4 השבועות הרגילים האחרונים (ראשון עד שבת). שבוע דילואד לא נכלל — לא נדרש ולא מוחמץ. השבוע הנוכחי מתחיל ב-100% ויורד רק אם כבר לא נותרו מספיק ימים להשלים את היעד.');
   html += _section('סיכום כללי');
-  html += _row('אימונים שבוצעו', totalDone+' / '+(perWeek*4)+' צפויים');
+  html += _row('אימונים שבוצעו', totalDone+' / '+(perWeek*reg.length)+' צפויים');
   html += _row('אימונים שהוחמצו', totalMissed>0 ? '<span style="color:var(--red)">'+totalMissed.toFixed(1)+'</span>' : '<span style="color:var(--ok)">0 ✓</span>');
-  if(daysSince !== null){
-    html += _row('מהאימון האחרון', daysSince===0?'היום':daysSince===1?'אתמול':daysSince+' ימים');
-  }
-  
+  if(nDl) html += _row('שבועות דילואד (לא נכללו)', '🌿 '+nDl);
+  if(daysSince !== null) html += _row('מהאימון האחרון', daysSince===0?'היום':daysSince===1?'אתמול':daysSince+' ימים');
+
   html += _section('פירוט שבועי');
-  weeks.forEach(function(w,i){
-    var label = i===0?('השבוע · נותרו '+daysLeftInWeek()+' ימים'):i===1?'שבוע שעבר':'לפני '+(i+1)+' שבועות';
+  weeks.forEach(function(w){
+    var dates = '<div style="font-size:10px;color:var(--t3);margin-top:3px">'+_fmtDate(w.start)+' – '+_fmtDate(w.end-24*3600*1000)+'</div>';
+    if(w.deload){
+      html += '<div style="margin-bottom:10px;padding:8px;background:rgba(34,110,70,.14);border:1px solid rgba(52,140,90,.35);border-radius:8px">'+
+        '<div style="display:flex;justify-content:space-between;font-size:12px">'+
+          '<span style="color:var(--t2)">'+lbl(w)+' · 🌿 דילואד</span>'+
+          '<span style="color:var(--t3)">'+w.count+' אימונים · לא נכלל</span>'+
+        '</div>'+dates+'</div>';
+      return;
+    }
     var pct = Math.min(100, Math.round(w.count/perWeek*100));
     var barColor = pct>=100 ? 'var(--ok)' : pct>=75 ? '#eab308' : 'var(--red)';
-    var isWeakest = i===weakestIdx && w.missed>0;
+    var isWeakest = weakest===w;
     html += '<div style="margin-bottom:10px'+(isWeakest?';padding:8px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);border-radius:8px':'')+'">'+
       '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">'+
-        '<span style="color:var(--t2)">'+label+(isWeakest?' ⚠️':'')+'</span>'+
+        '<span style="color:var(--t2)">'+lbl(w)+(isWeakest?' ⚠️':'')+'</span>'+
         '<span style="color:var(--t1);font-weight:700">'+w.count+' / '+perWeek+(w.missed>0?' (חסרו '+w.missed.toFixed(1)+')':'')+'</span>'+
       '</div>'+
       '<div style="height:6px;background:var(--s2);border-radius:3px;overflow:hidden">'+
         '<div style="height:100%;width:'+pct+'%;background:'+barColor+';border-radius:3px"></div>'+
-      '</div>'+
-      '<div style="font-size:10px;color:var(--t3);margin-top:3px">'+_fmtDate(w.start)+' – '+_fmtDate(w.end-24*3600*1000)+'</div>'+
-      '</div>';
+      '</div>'+dates+'</div>';
   });
-  
-  if(weakestMissed>0){
-    var weakLabel = weakestIdx===0?'השבוע':weakestIdx===1?'שבוע שעבר':'לפני '+(weakestIdx+1)+' שבועות';
+
+  if(weakest){
     html += '<div style="background:var(--s2);border-radius:8px;padding:10px;margin-top:10px;font-size:12px;color:var(--t2);line-height:1.5">'+
-      '📉 <b>'+weakLabel+'</b> היה השבוע החלש ביותר ב-4 השבועות האחרונים.'+
+      '📉 <b>'+lbl(weakest).split(' · ')[0]+'</b> היה השבוע החלש ביותר מבין השבועות הרגילים.'+
       '</div>';
   } else {
     html += '<div style="background:var(--s2);border-radius:8px;padding:10px;margin-top:10px;font-size:12px;color:var(--ok);line-height:1.5">'+
-      '🏆 עמדת ביעד בכל ארבעת השבועות. כל הכבוד!'+
+      '🏆 עמדת ביעד בכל השבועות הרגילים. כל הכבוד!'+
       '</div>';
   }
   return html;
