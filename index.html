@@ -613,7 +613,7 @@ canvas{width:100%;border-radius:var(--r);background:var(--s1);display:block}
     </div>
     <div id="statsBar" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px"></div>
     <div id="volCharts"></div>
-    <div style="font-size:10px;color:var(--t3);margin-top:6px;text-align:center">משקל × חזרות · החלקה ימינה = אחורה בזמן</div>
+    <div style="font-size:10px;color:var(--t3);margin-top:6px;text-align:center">משקל × חזרות · החלקה ימינה = אחורה בזמן · לחיצה על עמודה = השוואה לשיא</div>
 
     <div style="font-size:10px;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.8px;margin:20px 0 8px">עקביות 30 יום</div>
     <div id="gaugesvg" onclick="openGaugeDetail()" style="width:100%;max-width:240px;margin:0 auto;display:block"></div>
@@ -732,7 +732,7 @@ canvas{width:100%;border-radius:var(--r);background:var(--s1);display:block}
 // ══════════════════════════════════════════════════════
 const STEP = 2.5;
 // fix42: מספר גרסה — לעדכן בכל שחרור (זהה ל-CACHE ב-sw.js)
-const APP_VER = '03.11.26b';
+const APP_VER = '05.11.26';
 let P = null, wLog = [], sessions = [], curSess = null, curWkt = 'A', selEx = null;
 let tmrIv = null;
 let skipMode = false;
@@ -998,7 +998,17 @@ function preDeloadBest(id, wkt, variant, type, beforeIdx){
 }
 // fix33: תרגילים שנוספו לאימון בודד — נשמרים בנפרד מהתוכנית, אך מוכרים לכל חישובי הנפח והסטטיסטיקה
 function sessExReg(){ return ld('exDefReg',{}); }
-function sessExDefs(){ var r=sessExReg(); return Object.keys(r).map(function(k){ return r[k]; }); }
+function sessExDefs(){
+  // fix47: ההגדרה נשלפת גם מתוך האימונים עצמם — כך תרגיל שנוסף לאימון בודד
+  // נספר בנפח גם אחרי שחזור מגיבוי ישן שלא כלל את הרישום
+  var k=sessions.length+'_'+(sessions.length?sessions[sessions.length-1].start:0);
+  if(sessExDefs._k!==k){
+    var m={}; sessions.forEach(function(s){ (s.xEx||[]).forEach(function(e){ if(e&&e.id) m[e.id]=e; }); });
+    sessExDefs._m=m; sessExDefs._k=k;
+  }
+  var o=Object.assign({}, sessExDefs._m, sessExReg());
+  return Object.keys(o).map(function(id){ return o[id]; });
+}
 function allEx(){ var r=[]; Object.keys(WKT).forEach(function(k){ r=r.concat(WKT[k].ex||[]); }); return r.concat(sessExDefs()); }
 // רשימת התרגילים של האימון הפעיל: תרגילי התוכנית + תוספות הסשן
 function curWktEx(){
@@ -2790,6 +2800,8 @@ function drawVolChart(wkt){
   var barW=Math.max(4,Math.floor(gW/WIN)-4);
   var gap=(gW-barW*WIN)/(WIN+1);
   canvas._volUnit=barW+gap;
+  // fix47: גאומטריה לזיהוי לחיצה על עמודה
+  canvas._volGeo={padL:pad.l, gap:gap, barW:barW, firstF:firstF, j0:j0, j1:j1, list:list, peakIdx:peakIdx, vols:vols, wkt:wkt};
 
   // קווי רשת + ערכי ציר Y (בצד ימין)
   ctx.strokeStyle='rgba(255,255,255,.08)';
@@ -2872,6 +2884,7 @@ function drawVolChart(wkt){
   if(!canvas._hasSwipe){
     var sx=0, sy=0, so=0, drag=null, W=wkt;
     canvas.addEventListener('touchstart',function(e){
+      canvas._wasDrag=false;
       sx=e.touches[0].clientX; sy=e.touches[0].clientY;
       so=window['_volOff'+W]||0; drag=null;
     },{passive:true});
@@ -2892,12 +2905,160 @@ function drawVolChart(wkt){
     },{passive:false});
     canvas.addEventListener('touchend',function(){
       drawVolChart._keep=false;
+      if(drag!==null) canvas._wasDrag=true;
       if(drag){ window['_volOff'+W]=Math.round(window['_volOff'+W]||0); drawVolChart(W); }
       drag=null;
     },{passive:true});
+    // fix47: לחיצה על עמודה → השוואה סט מול סט לאימון השיא
+    canvas.addEventListener('click',function(e){
+      if(canvas._wasDrag){ canvas._wasDrag=false; return; }
+      var G=canvas._volGeo; if(!G) return;
+      var r=canvas.getBoundingClientRect(), px=e.clientX-r.left;
+      var unit=G.barW+G.gap, best=-1, bd=1e9;
+      for(var j=G.j0;j<=G.j1;j++){
+        var bx=G.padL+G.gap+unit*(j-G.firstF), c=bx+G.barW/2, dd=Math.abs(px-c);
+        if(dd<bd){ bd=dd; best=j; }
+      }
+      if(best<0 || bd>unit/2+2) return;
+      openVolCompare(G, best);
+    });
+    canvas.style.cursor='pointer';
     canvas._hasSwipe=true;
   }
-}// ══════════════════════════════════════════════════════
+}
+// ══════════════════════════════════════════════════════
+// fix47: השוואת אימון לאימון השיא — תרגיל מול תרגיל, סט מול סט
+// ══════════════════════════════════════════════════════
+function _cmpMerge(bar){
+  // עמודה יכולה לאחד כמה אימונים מאותו יום — מאחדים את הסטים שבוצעו
+  var parts=bar._parts||[bar], sets={}, names={}, xdefs={};
+  parts.forEach(function(s){
+    Object.keys(s.sets||{}).forEach(function(id){
+      var d=(s.sets[id]||[]).filter(function(x){ return x.done; });
+      if(!d.length) return;
+      sets[id]=(sets[id]||[]).concat(d);
+    });
+    if(s.exNames) Object.keys(s.exNames).forEach(function(k){ names[k]=s.exNames[k]; });
+    (s.xEx||[]).forEach(function(e){ xdefs[e.id]=e; });
+  });
+  return {start:bar.start, deload:!!bar.deload, sets:sets, names:names, xdefs:xdefs};
+}
+function _cmpDef(id, A, B){
+  return allEx().filter(function(e){ return e.id===id; })[0] || A.xdefs[id] || B.xdefs[id] || null;
+}
+function _cmpName(id, A, B){
+  var d=_cmpDef(id,A,B);
+  return (d&&d.n) || A.names[id] || B.names[id] || ld('exNameReg',{})[id] || id;
+}
+// נפח תרגיל — אותו חישוב כמו בגרף: מקדם מנוף, משקל גוף 50%, תרגיל זמן ללא ק"ג
+function _cmpExVol(sets, ref, ts){
+  if(!ref || !sets || !sets.length) return null;
+  var t=exTypeAt(ref, ts);
+  if(t==='time') return null;
+  var bw=bwAt(ts), v=0;
+  sets.forEach(function(st){
+    var reps=parseReps(st.r, ref.r), w=parseFloat(st.w)||0;
+    v += (t==='body') ? (bw*0.5+w)*reps : w*reps*exCoefAt(ref, ts);
+  });
+  return v;
+}
+function _cmpSetTxt(st, t){
+  if(!st) return '<span style="color:var(--t3)">—</span>';
+  var r=st.r||'—', w=parseFloat(st.w)||0;
+  function L(x){ return '<span dir="ltr">'+x+'</span>'; }
+  if(t==='time') return L(r)+' שנ\'';
+  if(t==='body') return w>0 ? L(w+'×'+r) : L(r)+' חז\'';
+  return L(w+'×'+r);
+}
+function _cmpGap(a, b, t){
+  // a = האימון שנבחר, b = השיא. הפער = a פחות b
+  var BL='#60a5fa';
+  function sp(txt){ return '<span style="color:'+BL+';font-weight:800">'+txt+'</span>'; }
+  function num(v){ return '<span dir="ltr">'+(v>0?'+':'')+v+'</span>'; }
+  if(!a && !b) return '';
+  if(!a) return sp('חסר');
+  if(!b) return sp('נוסף');
+  var out=[];
+  var dw=Math.round(((parseFloat(a.w)||0)-(parseFloat(b.w)||0))*10)/10;
+  var ra=parseFloat(a.r), rb=parseFloat(b.r);
+  var dr=(!isNaN(ra)&&!isNaN(rb)) ? Math.round((ra-rb)*10)/10 : 0;
+  if(t==='kg' || (t==='body' && dw)){ if(dw) out.push(num(dw)+' ק"ג'); }
+  if(dr) out.push(num(dr)+(t==='time'?' שנ\'':' חז\''));
+  return out.length ? sp(out.join(' · ')) : '<span style="color:var(--t3)">—</span>';
+}
+function openVolCompare(G, j){
+  var list=G.list, wkt=G.wkt;
+  var pIdx=G.peakIdx, selIdx=j, note='';
+  if(selIdx===pIdx){
+    // לחיצה על השיא עצמו — משווים אותו לאימון שלפניו
+    if(pIdx<=0){ toast('🏆 זה האימון הראשון והשיא — אין למה להשוות'); return; }
+    selIdx=pIdx; pIdx=pIdx-1;
+    note='🏆 זה אימון השיא. ההשוואה מול האימון שלפניו.';
+  }
+  var A=_cmpMerge(list[selIdx]), B=_cmpMerge(list[pIdx]);
+  var vA=G.vols[selIdx], vB=G.vols[pIdx];
+  var peakLbl = (G.peakIdx===pIdx) ? 'שיא' : 'קודם';
+  function dt(ts){ var d=new Date(ts); return d.getDate()+'/'+(d.getMonth()+1); }
+
+  // סדר התרגילים: לפי התוכנית, ואחריה תרגילים שכבר לא בה
+  var ids=[], seen={};
+  function add(id){ if(!seen[id]){ seen[id]=1; ids.push(id); } }
+  ((WKT[wkt]&&WKT[wkt].ex)||[]).forEach(function(e){ if(A.sets[e.id]||B.sets[e.id]) add(e.id); });
+  Object.keys(B.sets).forEach(add); Object.keys(A.sets).forEach(add);
+  // סופרסט מוצג מקונן תחת המארח שלו
+  var hostOf={};
+  ids.forEach(function(id){ var d=_cmpDef(id,A,B); if(d && d.ss && seen[d.ss]) hostOf[id]=d.ss; });
+
+  var BL='#60a5fa';
+  var dV=vA-vB, dP=vB>0 ? dV/vB*100 : 0;
+  var html='';
+  if(note) html+='<div style="background:var(--s2);border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:12px;color:var(--t2)">'+note+'</div>';
+  if(A.deload) html+='<div style="background:rgba(34,110,70,.16);border:1px solid rgba(52,140,90,.35);border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:12px;color:var(--t2)">🌿 אימון דילואד — הירידה מתוכננת</div>';
+  html+='<div style="display:flex;justify-content:space-between;align-items:center;background:var(--s2);border-radius:10px;padding:9px 12px;margin-bottom:12px;font-size:13px">'
+    +'<span style="color:var(--t2)">נפח · '+peakLbl+' '+Math.round(vB).toLocaleString()+' · נבחר '+Math.round(vA).toLocaleString()+'</span>'
+    +'<span dir="ltr" style="color:'+BL+';font-weight:900">'+(dV>0?'+':'')+Math.round(dV).toLocaleString()+' ('+(dP>0?'+':'')+dP.toFixed(1)+'%)</span>'
+    +'</div>';
+
+  var GRID='display:grid;grid-template-columns:30px 1fr 1fr 1.25fr;gap:4px;align-items:center';
+  html+='<div style="'+GRID+';font-size:10px;font-weight:700;color:var(--t3);padding:0 4px 6px;border-bottom:1px solid var(--bd)">'
+    +'<span>סט</span><span>'+peakLbl+' · '+dt(B.start)+'</span><span>נבחר · '+dt(A.start)+'</span><span>פער</span></div>';
+
+  function block(id, nested){
+    var d=_cmpDef(id,A,B), t=d ? exTypeAt(d, A.start) : 'kg';
+    var sa=A.sets[id]||[], sb=B.sets[id]||[];
+    var n=Math.max(sa.length, sb.length);
+    var va=_cmpExVol(sa, d, A.start), vb=_cmpExVol(sb, d, B.start);
+    var tag = !sa.length ? ' <span style="color:'+BL+';font-size:10px">· לא בוצע בנבחר</span>'
+            : !sb.length ? ' <span style="color:'+BL+';font-size:10px">· לא בוצע ב'+peakLbl+'</span>' : '';
+    var exGap='';
+    if(va!==null && vb!==null && Math.round(va-vb)!==0)
+      exGap='<span style="color:'+BL+';font-size:11px;font-weight:800"><span dir="ltr">'+(va-vb>0?'+':'')+Math.round(va-vb)+'</span> ק"ג</span>';
+    var wrap=nested ? 'margin:2px 0 0;padding:6px 8px 4px;border-inline-start:2px solid rgba(200,70,70,.55);background:rgba(200,70,70,.07);border-radius:6px'
+                    : 'margin-top:10px;padding:8px 6px 4px;border-bottom:1px solid var(--bd)';
+    var h='<div style="'+wrap+'">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">'
+      +'<span style="font-size:13px;font-weight:800;color:'+(nested?'#e08a8a':'var(--tx)')+'">'+(nested?'🔗 ':'')+_cmpName(id,A,B)+tag+'</span>'+exGap+'</div>';
+    for(var i=0;i<n;i++){
+      var a=sa[i]||null, b=sb[i]||null;
+      var diff = !a || !b || (parseFloat(a.w)||0)!==(parseFloat(b.w)||0) || String(a.r)!==String(b.r);
+      h+='<div style="'+GRID+';font-size:12px;padding:3px 0;'+(diff?'background:rgba(96,165,250,.07);border-radius:4px':'')+'">'
+        +'<span style="color:var(--t3)">'+(i+1)+'</span>'
+        +'<span>'+_cmpSetTxt(b,t)+'</span>'
+        +'<span style="font-weight:700">'+_cmpSetTxt(a,t)+'</span>'
+        +'<span style="font-size:11px">'+_cmpGap(a,b,t)+'</span></div>';
+    }
+    ids.forEach(function(sid){ if(hostOf[sid]===id) h+=block(sid, true); });
+    return h+'</div>';
+  }
+  ids.forEach(function(id){ if(!hostOf[id]) html+=block(id, false); });
+
+  $('insKicker').textContent='השוואת אימונים · תוכנית '+wkt;
+  $('insTitle').textContent=dt(A.start)+' מול '+(peakLbl==='שיא'?'השיא':'הקודם')+' ('+dt(B.start)+')';
+  $('insBody').innerHTML=html;
+  openOvlFade('insOvl');
+}
+
+// ══════════════════════════════════════════════════════
 // SET ACTIONS
 // ══════════════════════════════════════════════════════
 var rIv=null, rTm=null;
@@ -3394,7 +3555,7 @@ function saveR(id){
 function autoExport(label){
   var now=new Date();
   var dateStr=now.toLocaleDateString('he-IL',{year:'numeric',month:'2-digit',day:'2-digit'}).replace(/\//g,'-');
-  var blob=new Blob([JSON.stringify({P:P,wLog:wLog,sessions:sessions,exA:(WKT.A?WKT.A.ex:[]),exB:(WKT.B?WKT.B.ex:[]),plans:planKeys().map(function(k){return {k:k,name:WKT[k].name,freq:WKT[k].freq||1,ex:WKT[k].ex};}),bridges:getBridges(),decisions:getDecisions(),exNameReg:ld('exNameReg',{}),exMuscleReg:ld('exMuscleReg',{}),muscleMap:getMuscleMap(),deloadReset:ld('deloadReset',0),v:4},null,2)],{type:'application/json'});
+  var blob=new Blob([JSON.stringify({P:P,wLog:wLog,sessions:sessions,exA:(WKT.A?WKT.A.ex:[]),exB:(WKT.B?WKT.B.ex:[]),plans:planKeys().map(function(k){return {k:k,name:WKT[k].name,freq:WKT[k].freq||1,ex:WKT[k].ex};}),bridges:getBridges(),decisions:getDecisions(),exNameReg:ld('exNameReg',{}),exMuscleReg:ld('exMuscleReg',{}),muscleMap:getMuscleMap(),deloadReset:ld('deloadReset',0),exDefReg:sessExReg(),v:4},null,2)],{type:'application/json'});
   var a=document.createElement('a');
   a.href=URL.createObjectURL(blob);
   a.download='gymlog_'+dateStr+(label?'_'+label:'')+'.json';
@@ -4539,6 +4700,7 @@ function doImport(e){
     if(d.exMuscleReg){ var cm=ld('exMuscleReg',{}); Object.assign(cm,d.exMuscleReg); sv('exMuscleReg',cm); }
     // fix22: איפוס הדילואד הידני נשמר בגיבוי — לוקחים את המאוחר מבין הקיים לנכנס
     if(d.deloadReset){ sv('deloadReset', Math.max(ld('deloadReset',0), d.deloadReset)); }
+    if(d.exDefReg){ var cx=sessExReg(); Object.assign(cx,d.exDefReg); sv('exDefReg',cx); }
     if(d.muscleMap){ var mmv=getMuscleMap(); Object.assign(mmv,d.muscleMap); saveMuscleMap(mmv); }
     saveP(); saveW(); saveS();
     try{ refreshHdr(); renderWkt(); renderEdit(); updateAlertBadge(); }
