@@ -732,7 +732,7 @@ canvas{width:100%;border-radius:var(--r);background:var(--s1);display:block}
 // ══════════════════════════════════════════════════════
 const STEP = 2.5;
 // fix42: מספר גרסה — לעדכן בכל שחרור (זהה ל-CACHE ב-sw.js)
-const APP_VER = '05.11.26';
+const APP_VER = '05.11.26b';
 let P = null, wLog = [], sessions = [], curSess = null, curWkt = 'A', selEx = null;
 let tmrIv = null;
 let skipMode = false;
@@ -911,9 +911,13 @@ function setVariant(id,v){
   (curSess.sets[id]||[]).forEach(function(st){ if(v) st.v = v; else delete st.v; });
   // מלא את הסטים שלא בוצעו במשקל האחרון של המצב הנבחר
   var lwv = lastWByVariant(id, curWkt, v);
-  if(lwv!==null){
-    (curSess.sets[id]||[]).forEach(function(st){ if(!st.done) st.w = lwv; });
-  }
+  var _ex = _exById(id);
+  (curSess.sets[id]||[]).forEach(function(st,i){
+    if(st.done) return;
+    var rc = (_ex && !curSess.deload) ? recSet(_ex, i) : null; // fix48: שיא הסט בווריאנט שנבחר
+    if(rc){ st.w = rc.w; st.r = rc.r; st._auto = true; }
+    else if(lwv!==null) st.w = lwv;
+  });
   saveC();
   renderWkt();
 }
@@ -3068,6 +3072,7 @@ function doRAdj(id,i,d){
   if(skipMode) return;
   var a=ensureSets(id); if(!a||!a[i]) return;
   var s=a[i];
+  delete s._auto; // fix48
   var cur=parseInt(s.r)||0;
   s.r=String(Math.max(0,cur+d));
   var el=$('ri_'+id+'_'+i); if(el) el.value=s.r;
@@ -3077,6 +3082,82 @@ function adjSt(id,i,d){ doAdj(id,i,d); adjTm=setTimeout(function(){adjIv=setInte
 function adjEnd(){ clearTimeout(adjTm); clearInterval(adjIv); adjIv=adjTm=null }
 // fix35: תרגיל שנוסף לתוכנית אחרי שהאימון כבר נפתח (למשל סופרסט) — אין לו מערך סטים בסשן.
 // יוצרים אותו בעצלתיים במקום לקרוס.
+// ══════════════════════════════════════════════════════
+// fix48: שיא לכל סט — המשקל הכבד ביותר שבוצע אי פעם באותו תרגיל ובאותו מספר סט.
+// לא כולל דילואד. רק מאז השינוי האחרון בתרגיל (שם, סוג, מנוף או החלפה במקום),
+// כדי לא להשוות משקלים של מכשיר או תרגיל אחר. באותו משקל — הכי הרבה חזרות.
+// ══════════════════════════════════════════════════════
+function exCmpFrom(ex){
+  var f=0;
+  (ex.nameHist||[]).forEach(function(x){ if(x.until>f) f=x.until; });
+  (ex.coefHist||[]).forEach(function(x){ if(x.from>f) f=x.from; });
+  (ex.typeHist||[]).forEach(function(x){ if(x.from>f) f=x.from; });
+  var decs=getDecisions();
+  Object.keys(decs).forEach(function(k){
+    var d=decs[k];
+    if(k.indexOf('inplace_')!==0 || d.step!=='done' || d.dismissed) return;
+    if((d.exId || k.replace('inplace_','').split('_')[0])!==ex.id) return;
+    var td=d.transDate||d.date||0; if(td>f) f=td;
+  });
+  return f;
+}
+var _recCache={k:null, m:{}};
+function exRecords(ex, variant){
+  var key=sessions.length+'_'+(sessions.length?sessions[sessions.length-1].start:0);
+  if(_recCache.k!==key){ _recCache={k:key, m:{}}; }
+  var ck=ex.id+'|'+(variant||'')+'|'+exCmpFrom(ex)+'|'+(ex.t||'kg');
+  if(_recCache.m[ck]) return _recCache.m[ck];
+  var t=ex.t||'kg', from=exCmpFrom(ex), per=[], any=null;
+  function n(v){ var x=parseFloat(v); return isNaN(x)?0:x; }
+  function better(a,b){
+    if(!b) return true;
+    if(t==='kg') return n(a.w)!==n(b.w) ? n(a.w)>n(b.w) : n(a.r)>n(b.r);
+    return n(a.r)!==n(b.r) ? n(a.r)>n(b.r) : n(a.w)>n(b.w); // גוף/זמן: חזרות/שניות קודם
+  }
+  sessions.forEach(function(s){
+    if(s.deload || s.start<from) return;
+    if(curSess && s.start===curSess.start) return;
+    if(exTypeAt(ex, s.start)!==t) return;
+    ((s.sets||{})[ex.id]||[]).forEach(function(x,i){
+      if(!x.done || !(variant ? x.v===variant : !x.v)) return;
+      if(t==='kg' ? !(n(x.w)>0) : !(n(x.r)>0)) return;
+      var rec={w:n(x.w), r:String(x.r||''), d:s.start};
+      if(better(rec, per[i])) per[i]=rec;
+      if(better(rec, any)) any=rec;
+    });
+  });
+  return (_recCache.m[ck]={per:per, any:any});
+}
+// השיא לסט מספר i. סט שמעולם לא בוצע במיקום הזה — השיא הכללי של התרגיל
+function recSet(ex, i){
+  if(!ex) return null;
+  var v=(ex.variants&&ex.variants.length) ? getActiveVariant(ex.id) : null;
+  var R=exRecords(ex, v);
+  return R.per[i] || R.any || null;
+}
+// ערכי פתיחה לסט: שיא הסט; באימון דילואד — כמו קודם (משקל אחרון), כי אין מטרה לשבור שיא
+function openSetVal(ex, i, wkt, lr){
+  if(!(curSess && curSess.deload)){
+    var r=recSet(ex, i);
+    if(r) return {w:r.w, r:r.r};
+  }
+  return {w:defW(ex, wkt), r:lr||''};
+}
+// מרענן סטים שלא נגעו בהם לשיא הנוכחי
+function refreshAutoSets(exArr){
+  if(!curSess) return;
+  exArr.forEach(function(ex){
+    var a=curSess.sets[ex.id]; if(!a) return;
+    var lr=null;
+    a.forEach(function(st,i){
+      if(!st._auto || st.done) return;
+      if(lr===null) lr=lastR(ex.id,curWkt)||'';
+      var o=openSetVal(ex, i, curWkt, lr);
+      st.w=o.w; st.r=o.r;
+    });
+  });
+}
+
 function ensureSets(id){
   if(!curSess) return null;
   if(!curSess.sets[id]){
@@ -3084,8 +3165,9 @@ function ensureSets(id){
          || allEx().filter(function(e){return e.id===id;})[0];
     var n=(ex&&parseInt(ex.s))||lastSets(id,curWkt)||3;
     var lr=lastR(id,curWkt);
-    curSess.sets[id]=Array.from({length:n},function(){
-      return {w: ex?defW(ex,curWkt):0, r: lr||'', done:false, _auto:true};
+    curSess.sets[id]=Array.from({length:n},function(_,i){
+      var o=ex ? openSetVal(ex, i, curWkt, lr) : {w:0, r:lr||''};
+      return {w:o.w, r:o.r, done:false, _auto:true};
     });
     saveC();
   }
@@ -3101,7 +3183,7 @@ function doAdj(id,i,d){
   saveC();
 }
 function updW(id,i,v){ if(skipMode) return; var a=ensureSets(id); if(!a||!a[i]) return; a[i].w=parseFloat(v)||0; delete a[i]._auto; saveC() }
-function updR(id,i,v){ if(skipMode) return; var a=ensureSets(id); if(!a||!a[i]) return; a[i].r=v; saveC() }
+function updR(id,i,v){ if(skipMode) return; var a=ensureSets(id); if(!a||!a[i]) return; a[i].r=v; delete a[i]._auto; saveC() }
 // לחיצה על שדה: הערך הקודם הופך לרמז אפור והשדה מתרוקן — בלי סימון טקסט (מונע את בועת העתק/גזור)
 function clrFocus(el){
   el.dataset.prev=el.value;
@@ -3182,7 +3264,8 @@ function adjSets(id, delta){
   var ex=allEx().filter(function(e){return e.id===id})[0];
   if(!ex) return;
   if(delta>0){
-    sets.push({w:defW(ex,curWkt), r:lastR(id,curWkt)||'', done:false, _auto:true});
+    var _o=openSetVal(ex, sets.length, curWkt, lastR(id,curWkt));
+    sets.push({w:_o.w, r:_o.r, done:false, _auto:true});
   } else if(delta<0 && sets.length>1){
     sets.pop();
   }
@@ -3643,8 +3726,10 @@ function beginWkt(wkt){
     WKT[curWkt].ex.forEach(function(ex){
       var numSets = ex.s || lastSets(ex.id,curWkt) || 3;
       var lr = lastR(ex.id,curWkt);
-      sets[ex.id] = Array.from({length:numSets},function(){
-        return {w:defW(ex,curWkt), r:lr||'', done:false, _auto:true};
+      // fix48: כל סט נפתח עם השיא שלו
+      sets[ex.id] = Array.from({length:numSets},function(_,i){
+        var o=openSetVal(ex, i, curWkt, lr);
+        return {w:o.w, r:o.r, done:false, _auto:true};
       });
     });
     curSess = {wkt:curWkt, start:Date.now(), sets};
@@ -3800,7 +3885,7 @@ function buildSetRow(ex, i, hasSess, isSuper){
   var sd = hasSess ? (curSess.sets[ex.id]||[])[i] : null;
   var done = sd?sd.done:false;
   // fix36: משקל שלא נקבע ידנית מתרענן תמיד מול "פעם אחרונה", כדי שלא יוצג ערך מיושן
-  var sw = (sd && !sd._auto) ? sd.w : defW(ex,curWkt);
+  var sw = sd ? sd.w : defW(ex,curWkt);
   var sr = sd ? sd.r : '';
   var inp = '';
   var repsCtrl = '<div class="rc">'+
@@ -3839,6 +3924,7 @@ function renderWkt(){
   // fix37: תרגיל שנוסף לתוכנית אחרי פתיחת האימון חייב לקבל מערך סטים כבר כאן,
   // אחרת הוא מצויר אך לא ניתן לסמן אותו והוא לא נשמר בסשן.
   if(hasSess) _wArr.forEach(function(ex){ ensureSets(ex.id); });
+  if(hasSess) refreshAutoSets(_wArr); // fix48
   _wArr.forEach(function(ex, _wi){
     if(ex.ss) return; // fix21: הסופרסט מוצג בתוך כרטיס האב, לא ככרטיס נפרד
     var ssEx = (_wArr[_wi+1] && _wArr[_wi+1].ss) ? _wArr[_wi+1] : null;
@@ -3874,6 +3960,11 @@ function renderWkt(){
     var hint = isTime ? (lr2?'פעם אחרונה: '+lr2+' שנ\'':'תרגיל זמן')
              : ex.t==='body' ? (lr2?'פעם אחרונה: '+lr2+' חזרות':'משקל גוף')
              : lw!==null ? 'פעם אחרונה'+varSuffix+': '+lw+' ק"ג' : 'ראשוני: '+ex.w+' ק"ג';
+    // fix48: השיא שאותו רוצים לשבור
+    try{
+      var _ra=exRecords(ex, actVar).any;
+      if(_ra) hint += ' · 🏆 שיא: '+(isKg ? _ra.w+'×'+_ra.r : _ra.r+(isTime?' שנ\'':' חז\'')+(_ra.w>0?' +'+_ra.w+' ק"ג':''));
+    }catch(e){}
     // ── Pre-Deload hint: אם הסשן הקודם של אותו תרגיל היה דילואד, הצג את השיא לפני הדילואד ──
     var preDeloadHint = '';
     try {
